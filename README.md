@@ -7,8 +7,60 @@ single file `index.html` and has no external dependencies.
 ## Solo play
 Open `index.html` in any modern browser (double-click works), pick difficulty, fog and **map size**, then click **Solo Campaign**.
 
+## Host a game: double-click (no Node install needed)
+Download the host app for your computer from the GitHub **Releases** page:
+
+| Computer | File |
+|---|---|
+| Mac with Apple Silicon (M1–M4, e.g. MacBook Air) | `The-Lowlands-Host-mac-arm64.zip` |
+| Mac with Intel | `The-Lowlands-Host-mac-x64.zip` |
+| Windows 10/11 (64-bit) | `The-Lowlands-Host-windows.zip` |
+| Linux x64 | `The-Lowlands-Host-linux.tar.gz` (or `.zip`) |
+
+Unzip it and double-click:
+- **macOS:** `Start The Lowlands Host.command`
+- **Windows:** `The-Lowlands-Host.exe`
+- **Linux:** `the-lowlands-host`, or run `./start.sh`
+
+A console window opens with a big banner. It shows the addresses other players type in their
+browser, e.g. `http://192.168.1.20:8080/`, one line per network address. Your own browser then
+opens the game. Keep the window open while you play, and close it to stop the host.
+
+The host uses port 8080. If 8080 is busy, for example because a second copy is running, it
+picks the next free port and shows it. Other players need nothing installed, just a browser on
+the same network. The same host is also the signaling and STUN server for peer-to-peer room
+codes.
+
+**macOS Gatekeeper (unsigned app).** The app has only an ad-hoc signature, not an Apple
+Developer ID, so macOS blocks it on first launch. Use one of these:
+- Right-click (Control-click) `Start The Lowlands Host.command` → **Open** → **Open**.
+- **macOS 15 Sequoia or newer:** double-click once and click *Done*. Then open **System
+  Settings → Privacy & Security**, click **Open Anyway** and confirm.
+- Or, in Terminal, then double-click normally:
+  `xattr -dr com.apple.quarantine ~/Downloads/The-Lowlands-Host-mac-arm64`
+  (use the unzipped folder's path).
+
+Allow "incoming network connections" when macOS asks, so others can join. Unzip with Finder
+(Archive Utility) or `ditto -x -k`; both keep the executable permissions stored in the zip.
+
+**Windows:** SmartScreen may say "Windows protected your PC". Click **More info → Run anyway**.
+When the firewall asks, allow **private networks**.
+
+**Building the apps yourself:** `node host/build.js [mac-arm64] [mac-x64] [windows] [linux]`
+writes everything to `dist/`, which is gitignored. It uses
+[`@yao-pkg/pkg`](https://github.com/yao-pkg/pkg) through `npx`, and cross-builds every platform
+from Linux. Put [`ldid`](https://github.com/ProcursusTeam/ldid/releases) on `PATH` so the macOS
+binaries get the ad-hoc signature that Apple Silicon requires. On a Mac, pkg signs them with
+`codesign` instead. The GitHub Actions workflow `.github/workflows/host-apps.yml` does this on
+every `v*` tag or published release:
+- builds on Linux;
+- smoke-tests the binaries on Linux, macOS (arm64, plus x64 under Rosetta) and Windows runners;
+- attaches the zips to the release.
+
+You can also start it by hand: Actions → *Host apps* → *Run workflow*.
+
 ## LAN multiplayer
-Requires Node.js 18 or newer.
+Requires Node.js 18 or newer, or use the double-click host app above.
 
 ```bash
 cd the-lowlands
@@ -284,6 +336,8 @@ npm i --no-save puppeteer-core            # once, for the two browser tests (nee
 CHROME=/usr/bin/google-chrome node test/audio-test.js   # headless Chrome: audio gating, BattleTimer unit test, SFX, sliders, LAN battle music
 CHROME=/usr/bin/google-chrome node test/ui-test.js      # headless Chrome: build hotkeys, context keys, garrison/bell/repair UI,
                                                         # map-size menu, LAN lobby map size, LAN building + bell
+node test/host-app-test.js [binary]   # packaged host app (after node host/build.js): banner + LAN URLs, browser launch,
+                                     # HTTP, /ws, /sig, port-in-use fallback
 CHROME=/usr/bin/google-chrome node test/p2p-test.js     # (optional: npm i --no-save jsqr, or JSQR=path, for the QR decode check)
                                                         # REAL WebRTC between two Chrome pages via server.js's STUN responder:
                                                         # reproduces the no-STUN zero-address bug + Brave warning, checksum errors,
@@ -299,3 +353,4 @@ CHROME=/usr/bin/google-chrome node test/p2p-test.js     # (optional: npm i --no-
 `p8room.js` holds the lobby and authoritative game loop, shared by `server.js` and the browser P2P host.
 `p10qr.js` is the QR encoder and `p10p2p.js` the WebRTC peer-to-peer layer.
 `p0client, p4–p7` contain rendering, UI, input and networking. `p9audio.js` is the WebAudio engine.
+`host/launcher.js` is the entry point of the double-click host apps (banner, browser launch, keeps the window open); `host/build.js` packages them into `dist/`.

@@ -1,5 +1,6 @@
 // The Lowlands — LAN server (server-authoritative simulation)
-// Usage: npm install && node server.js   (PORT env var optional, default 8080)
+// Usage: npm install && node server.js   (PORT env var optional, default 8080; if 8080 is taken and PORT isn't set,
+// the next free port 8081…8099 is used — set PORT_STRICT=1 to fail instead)
 'use strict';
 const http=require('http'),fs=require('fs'),path=require('path'),os=require('os'),vm=require('vm');
 const {WebSocketServer}=require('ws');
@@ -66,21 +67,29 @@ sigs.on('connection',ws=>{const id=sigN++;let hostOf=null,joinedTo=null,misses=0
 // ===== tiny STUN responder (RFC 5389 Binding → XOR-MAPPED-ADDRESS) on UDP STUN_PORT (default 3478, 0 = off) =====
 // Browsers that hide local addresses (Brave's default WebRTC policy) only produce candidates via STUN; this lets a LAN
 // without internet still get them from the game server. Stateless, a few lines, no dependencies.
-const stunPort=process.env.STUN_PORT==null?3478:+process.env.STUN_PORT;
+let stunPort=process.env.STUN_PORT==null?3478:+process.env.STUN_PORT;
 if(stunPort){const stun=require('dgram').createSocket('udp4');
  stun.on('message',(m,r)=>{if(m.length<20||m.readUInt16BE(0)!==0x0001||m.readUInt32BE(4)!==0x2112A442)return;
   const at=Buffer.alloc(12);at.writeUInt16BE(0x0020,0);at.writeUInt16BE(8,2);at[5]=1;at.writeUInt16BE(r.port^0x2112,6);
   r.address.split('.').forEach((v,i)=>{at[8+i]=(+v)^[0x21,0x12,0xA4,0x42][i];});
   const h=Buffer.alloc(20);h.writeUInt16BE(0x0101,0);h.writeUInt16BE(at.length,2);h.writeUInt32BE(0x2112A442,4);m.copy(h,8,8,20);stun.send(Buffer.concat([h,at]),r.port,r.address);});
- stun.on('error',e=>console.log(`  (STUN responder off: ${e.message})`));
+ stun.on('error',e=>{stunPort=0;console.log(`  (STUN responder off: ${e.message})`);});
  stun.bind(stunPort,'0.0.0.0',()=>console.log(`  STUN:   udp port ${stunPort} (helps browsers like Brave connect peer-to-peer)`));}
 // reap dead sockets and expired rooms
 setInterval(()=>{for(const ws of sigs.clients){if(!ws.alive){ws.terminate();continue;}ws.alive=false;try{ws.ping();}catch(e){}}
  const now=Date.now();for(const [c,r] of sigRooms)if(now-r.t0>SIG_TTL)sigClose(c,'expired');},Math.min(30000,Math.max(500,SIG_TTL/4))).unref();
 
-server.listen(PORT,'0.0.0.0',()=>{
- const ips=[];for(const list of Object.values(os.networkInterfaces()))for(const n of list||[])if((n.family==='IPv4'||n.family===4)&&!n.internal)ips.push(n.address);
+// listen on PORT; when PORT wasn't chosen explicitly and it's busy (e.g. a second copy is running), try the next ports
+function lanIPs(){const ips=[];for(const list of Object.values(os.networkInterfaces()))for(const n of list||[])if((n.family==='IPv4'||n.family===4)&&!n.internal)ips.push(n.address);return ips;}
+const fallback=!process.env.PORT&&!process.env.PORT_STRICT;let port=PORT;
+server.on('error',e=>{if(e.code==='EADDRINUSE'&&fallback&&port<PORT+19){console.log(`  port ${port} is in use, trying ${port+1}…`);port++;setTimeout(()=>server.listen(port,'0.0.0.0'),50);return;}
+ if(e.code==='EADDRINUSE')console.error(`\nPort ${port} is already in use (is The Lowlands already running?). Close the other program or set PORT=<number>.`);
+ else console.error('Server error: '+e.message);module.exports.onFatal(e);});
+server.on('listening',()=>{const p=server.address().port,ips=lanIPs();module.exports.port=p;
+ if(module.exports.banner)return module.exports.banner(p,ips);
  console.log('The Lowlands LAN server running.');
- console.log(`  Local:  http://localhost:${PORT}/`);
- for(const ip of ips)console.log(`  LAN:    http://${ip}:${PORT}/   <- share this with other players`);
+ console.log(`  Local:  http://localhost:${p}/`);
+ for(const ip of ips)console.log(`  LAN:    http://${ip}:${p}/   <- share this with other players`);
  if(!ips.length)console.log('  (no LAN IPv4 interface found)');});
+module.exports={server,lanIPs,port:null,banner:null,onFatal:()=>process.exit(1)};
+server.listen(port,'0.0.0.0');

@@ -10,10 +10,21 @@
     "test:soak": "node test/sim-test.js",
     "test:audio": "node test/audio-test.js",
     "test:p2p": "node test/p2p-test.js",
-    "test:ui": "node test/ui-test.js"
+    "test:ui": "node test/ui-test.js",
+    "build:host": "node host/build.js"
   },
   "dependencies": {
     "ws": "^8.18.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "bin": "host/launcher.js",
+  "pkg": {
+    "scripts": [
+      "server.js"
+    ],
+    "assets": [
+      "index.html"
+    ],
+    "outputPath": "dist/bin"
+  }
 }
