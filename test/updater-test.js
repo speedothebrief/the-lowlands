@@ -14,7 +14,7 @@ const ASSET=U.assetFor(),BIN=U.binName(),FOLDER='The-Lowlands-Host-'+KEY;
 const OLD='1.0.9',NEW=require('../package.json').version;const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 // ---- unit
 ok(U.cmpVer('1.1.0','1.0.9')>0&&U.cmpVer('v1.1.0','1.1.0')===0&&U.cmpVer('1.10.0','1.9.0')>0&&U.cmpVer('1.1.0-rc.1','1.1.0')<0&&U.cmpVer('1.1.0','1.1.1')<0,'semver comparison');
-ok(U.assetFor('darwin','arm64')==='The-Lowlands-Host-mac-arm64.zip'&&U.assetFor('darwin','x64')==='The-Lowlands-Host-mac-x64.zip'&&U.assetFor('win32','x64')==='The-Lowlands-Host-windows.zip'&&U.assetFor('linux','x64')===ASSET,'asset chosen per platform/arch');
+ok(U.assetFor('darwin','arm64')==='The-Lowlands-Host-mac-arm64.zip'&&U.assetFor('darwin','x64')==='The-Lowlands-Host-mac-x64.zip'&&U.assetFor('win32','x64')==='The-Lowlands-Host-windows.zip'&&U.assetFor('linux','x64')==='The-Lowlands-Host-linux.zip','asset chosen per platform/arch');
 ok(U.parseSums('ab'.repeat(32)+'  '+ASSET+'\n').get(ASSET)==='ab'.repeat(32),'SHA256SUMS parsing');
 // ---- build an old binary and the new release
 function build(ver,dir){execFileSync(process.execPath,[path.join(ROOT,'host/build.js'),KEY],{cwd:ROOT,stdio:'ignore',env:{...process.env,LOWLANDS_VERSION:ver,LOWLANDS_DIST:dir}});}
