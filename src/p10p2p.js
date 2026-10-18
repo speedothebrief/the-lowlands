@@ -18,9 +18,7 @@ const unb64u=s=>{s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='='
 async function pipeBytes(u8,stream){const r=new Response(new Blob([u8]).stream().pipeThrough(stream));return new Uint8Array(await r.arrayBuffer());}
 async function encodeSig(obj){const raw=new TextEncoder().encode(JSON.stringify(obj));
  if(typeof CompressionStream!=='undefined'){try{return 'LL1'+b64u(await pipeBytes(raw,new CompressionStream('deflate-raw')));}catch(e){}}return 'LL0'+b64u(raw);}
-// accepts a bare code or a whole invite/reply link (…#join=CODE / …#answer=CODE)
-function sigFrom(str){str=String(str||'').trim();const m=str.match(/[#&?](?:join|answer)=([A-Za-z0-9_\-]+)/);return m?m[1]:str;}
-async function decodeSig(code){code=sigFrom(code).replace(/\s+/g,'');const v=code.slice(0,3);let u=unb64u(code.slice(3));
+async function decodeSig(code){code=String(code||'').replace(/\s+/g,'');const v=code.slice(0,3);let u=unb64u(code.slice(3));
  if(v==='LL1')u=await pipeBytes(u,new DecompressionStream('deflate-raw'));else if(v!=='LL0')throw new Error('Not a Lowlands connection code');return JSON.parse(new TextDecoder().decode(u));}
 function iceDone(pc,ms){return new Promise(res=>{if(pc.iceGatheringState==='complete')return res();const t=setTimeout(res,ms||3000);
  pc.addEventListener('icegatheringstatechange',()=>{if(pc.iceGatheringState==='complete'){clearTimeout(t);res();}});});}
@@ -38,7 +36,7 @@ function p2pHost(){p2pLeave(true);const API=makeSimInstance();
  netKind='p2p';lobby=null;
  const self=room.join(s=>queueMicrotask(()=>{if(p2p&&p2p.role==='host'){let m;try{m=JSON.parse(s);}catch(e){return;}handleNet(m);}}),'this browser');
  p2p.self=self;conn={send:s=>{let m;try{m=JSON.parse(s);}catch(e){return;}self.msg(m);}};
- self.msg({t:'hello',name:myName()||'Host'});state='lobby';p2pRelayHost();p2pListenAnswers();}
+ self.msg({t:'hello',name:myName()||'Host'});state='lobby';p2pRelayHost();}
 function p2pNewPeer(){const pc=new RTCPeerConnection(p2pIce());const dc=pc.createDataChannel('game',{ordered:true});const peer={pc,dc,h:null,state:'waiting',inv:Math.random().toString(36).slice(2,8)};p2p.peers.add(peer);
  dc.onopen=()=>{if(!p2p||p2p.role!=='host'){pc.close();return;}peer.state='open';peer.h=p2p.room.join(s=>dcSend(dc,s),'WebRTC peer');p2pModalClose(peer);};
  dcRecv(dc,s=>{let m;try{m=JSON.parse(s);}catch(e){return;}if(peer.h)peer.h.msg(m);});
@@ -48,13 +46,23 @@ async function p2pMakeOffer(peer){await peer.pc.setLocalDescription(await peer.p
 async function p2pAcceptAnswer(peer,code){const d=await decodeSig(code);if(d.k!=='a')throw new Error('That is not an answer code (it should come from the joining player).');
  if(p2p&&p2p.role==='host'&&d.i){const byId=[...p2p.peers].find(q=>q.inv===d.i);if(byId)peer=byId;else if(peer&&peer.inv!==d.i)throw new Error('That answer belongs to an older invite.');}
  if(!peer||peer.pc.signalingState!=='have-local-offer')throw new Error('No open invite is waiting for that answer.');await peer.pc.setRemoteDescription({type:'answer',sdp:d.s});}
-async function p2pInvite(){if(!p2p||p2p.role!=='host')return;const peer=p2pNewPeer();p2pModal('invite',{peer});try{const code=await p2pMakeOffer(peer);p2pModalShow(code,p2pLink('join',code));}catch(e){p2pStatus('Could not create an invite: '+e.message);}}
+async function p2pInvite(){if(!p2p||p2p.role!=='host')return;const peer=p2pNewPeer();p2pModal('invite',{peer});try{const code=await p2pMakeOffer(peer);p2pModalShow(code);}catch(e){p2pStatus('Could not create an invite: '+e.message);}}
 // relay (server.js /sig): host gets a room code; joiners connect by code; the server only forwards offer/answer
-function sigURL(){return /^https?:$/.test(location.protocol)?(location.protocol==='https:'?'wss://':'ws://')+location.host+'/sig':null;}
-function p2pRelayHost(){const u=sigURL();if(!u)return;let s;try{s=new WebSocket(u);}catch(e){return;}p2p.sig=s;const pend=new Map();
- s.onopen=()=>s.send(JSON.stringify({t:'host'}));s.onerror=()=>{};
+// Signaling server: saved address (e.g. 192.168.1.20:8080, wardenfam.com:8080, https://x.example) or, by default,
+// the origin serving this page. ws:// or wss:// is chosen automatically (wss for https pages / https:// or wss:// addresses).
+function sigAddr(){try{return (localStorage.getItem('kom_sig')||'').trim();}catch(e){return '';}}
+function sigParse(a){a=String(a||'').trim();if(!a)return null;let sec=location.protocol==='https:';const m=a.match(/^([a-z]+):\/\//i);
+ if(m){const sc=m[1].toLowerCase();sec=sc==='https'||sc==='wss';a=a.slice(m[0].length);}a=a.replace(/[\/?#].*$/,'');if(!/^[\w.\-\[\]:]+$/.test(a))return null;
+ return{ws:(sec?'wss://':'ws://')+a+'/sig',http:(sec?'https://':'http://')+a+'/',host:a};}
+function sigInfo(){const a=sigAddr();if(a)return sigParse(a);return /^https?:$/.test(location.protocol)?{ws:(location.protocol==='https:'?'wss://':'ws://')+location.host+'/sig',http:location.origin+location.pathname,host:location.host,dflt:true}:null;}
+function sigURL(){const i=sigInfo();return i?i.ws:null;}
+function sigSave(a){a=String(a||'').trim();if(a&&!sigParse(a))return false;try{a?localStorage.setItem('kom_sig',a):localStorage.removeItem('kom_sig');}catch(e){}
+ if(p2p&&p2p.role==='host'){try{p2p.sig&&p2p.sig.close();}catch(e){}p2p.sig=null;p2p.code=null;p2p.sigState=null;p2pRelayHost();}return true;}
+function sigCodeNorm(c){return String(c||'').toUpperCase().replace(/[^A-Z]/g,'').slice(0,5);}
+function p2pRelayHost(){const u=sigURL();if(!u){p2p.sigState='none';return;}let s;try{s=new WebSocket(u);}catch(e){p2p.sigState='fail';return;}p2p.sig=s;p2p.sigState='connecting';const pend=new Map();
+ s.onopen=()=>s.send(JSON.stringify({t:'host'}));s.onerror=()=>{};s.onclose=()=>{if(p2p&&p2p.sig===s){p2p.sigState=p2p.code?'closed':'fail';p2p.code=null;}};
  s.onmessage=async ev=>{let m;try{m=JSON.parse(ev.data);}catch(e){return;}if(!p2p||p2p.sig!==s)return;
-  if(m.t==='code'){p2p.code=m.code;const e=document.getElementById('p2pRC');if(e)e.textContent=m.code;const rl=document.getElementById('p2pRoomLink');if(rl){rl.value=p2pRoomURL(m.code);const c=document.getElementById('p2pQR');try{QR.draw(c,rl.value);c.style.display='';}catch(x){}}}
+  if(m.t==='code'){p2p.code=m.code;p2p.sigState='ok';const e=document.getElementById('p2pRC');if(e)e.textContent=m.code;}
   else if(m.t==='peer'){const peer=p2pNewPeer();pend.set(m.id,peer);try{const code=await p2pMakeOffer(peer);s.send(JSON.stringify({t:'sig',to:m.id,data:code}));}catch(e){console.warn(e);}}
   else if(m.t==='sig'){const peer=pend.get(m.from);if(peer){pend.delete(m.from);try{await p2pAcceptAnswer(peer,m.data);}catch(e){console.warn(e);}}}};}
 // ---- join
@@ -67,10 +75,14 @@ async function p2pJoinWithOffer(code){const d=await decodeSig(code);if(d.k!=='o'
  pc.onconnectionstatechange=()=>{if(pc.connectionState==='failed'&&p2p&&p2p.pc===pc)p2pLost();};
  await pc.setRemoteDescription({type:'offer',sdp:d.s});await pc.setLocalDescription(await pc.createAnswer());await iceDone(pc);
  return encodeSig({k:'a',s:pc.localDescription.sdp,i:d.i});}
-function p2pJoinRoom(rc){const u=sigURL();if(!u){p2pStatus('Room codes need the page to be opened from the server (node server.js).');return;}
- const s=new WebSocket(u);p2p.sig=s;s.onopen=()=>s.send(JSON.stringify({t:'join',code:rc,name:myName()}));
+function p2pJoinRoom(rc){rc=sigCodeNorm(rc);const u=sigURL();if(!u){p2pStatus('Set a signaling server address first (the LAN/Synology server running server.js).');return;}if(rc.length<4){p2pStatus('Room codes have 4–5 letters.');return;}
+ if(!p2p)p2p={role:'join',pc:null,dc:null};try{p2p.sig&&p2p.sig.close();}catch(e){}
+ let s;try{s=new WebSocket(u);}catch(e){p2pStatus('Bad signaling server address.');return;}p2p.sig=s;let opened=false;
+ const to=setTimeout(()=>{if(!opened){try{s.close();}catch(e){}p2pStatus(`Can't reach the signaling server at ${sigInfo().host}.`);}},6000);
+ s.onerror=()=>{if(!opened){clearTimeout(to);p2pStatus(`Can't reach the signaling server at ${sigInfo().host}.`);}};
+ s.onopen=()=>{opened=true;clearTimeout(to);p2pStatus('Joining room '+rc+'…');s.send(JSON.stringify({t:'join',code:rc,name:myName()}));};
  s.onmessage=async ev=>{let m;try{m=JSON.parse(ev.data);}catch(e){return;}
-  if(m.t==='nocode')p2pStatus('No room with that code.');
+  if(m.t==='nocode')p2pStatus(`No open room "${rc}" on ${sigInfo().host}.`);
   else if(m.t==='sig'){try{const ans=await p2pJoinWithOffer(m.data);s.send(JSON.stringify({t:'sig',data:ans}));p2pStatus('Connecting…');}catch(e){p2pStatus(e.message);}}
   else if(m.t==='hostgone'){}};}
 function p2pLost(){const was=mode==='net';p2pLeave(true);if(was){mode='local';previewMap();}state='menu';msg('Lost the connection to the host.','#ff7a6a',me);}
@@ -86,69 +98,43 @@ function p2pModal(kind,o){p2pModalClose();const d=document.createElement('div');
  const ta='width:100%;box-sizing:border-box;height:58px;background:#0e0c09;color:#cfe;border:1px solid #665;font:11px monospace;word-break:break-all';
  const btn='background:#5a4426;color:#ffe7a8;border:1px solid #a8844a;border-radius:4px;padding:5px 12px;margin:4px 6px 4px 0;font:13px Georgia,serif;cursor:pointer';
  const relay=!!sigURL(),code=p2p&&p2p.code;
+ const si=sigInfo();const sigBox=`<p style="margin:6px 0;font-size:12px;color:#aa9">Signaling server: <input id="p2pSig" value="${sigAddr().replace(/"/g,'')}" placeholder="${si&&si.dflt?si.host+' (this page)':'e.g. 192.168.1.20:8080'}" style="width:190px;background:#0e0c09;color:#cfe;border:1px solid #665;font:12px monospace"> <button id="p2pSigSave" style="${btn};font-size:11px;padding:2px 8px">Save</button> <span id="p2pSigNow">${si?'using '+si.host:'none set'}</span></p>`;
  const qr=`<div style="text-align:center"><canvas id="p2pQR" style="max-width:100%;image-rendering:pixelated;display:none"></canvas></div>`;
  const stunBox=`<label style="font-size:12px;color:#aa9"><input type="checkbox" id="p2pStun" ${stun?'checked':''}> use a public STUN server (only needed across the internet; LAN works without)</label>
   <div id="p2pStatus" style="color:#ffd27a;min-height:18px;margin-top:6px"></div>`;
  if(kind==='invite')d.innerHTML=`<div style="font:bold 18px Georgia;color:#ffe7a8">Invite a player</div>
-  ${relay?`<p style="margin:6px 0">Send this <b>join link</b> (or let them scan the QR code). Opening it joins automatically through the server: room <b id="p2pRC">${code||'…'}</b>.</p>
-  <textarea id="p2pRoomLink" readonly style="${ta};height:34px">${code?p2pRoomURL(code):''}</textarea><button id="p2pCopyRoom" style="${btn}">Copy join link</button>
-  <p style="margin:8px 0 4px;color:#aa9">— or, without the server —</p>`:''}
-  <p style="margin:6px 0">1. Send this <b>invite link</b> ${relay?'':'(or let them scan the QR code)'}. Opening it starts joining. They can also paste it into <i>Join</i>.</p>
-  <textarea id="p2pLink" readonly style="${ta}" placeholder="creating…"></textarea><button id="p2pCopyLink" style="${btn}">Copy invite link</button>
-  ${qr}
-  <details style="margin:4px 0;color:#aa9"><summary>bare invite code</summary><textarea id="p2pCode" readonly style="${ta}"></textarea><button id="p2pCopy" style="${btn}">Copy code</button></details>
-  <p style="margin:6px 0">2. They send back a <b>reply link</b>. Open it in this browser and it is accepted here automatically, or paste the link or code:</p>
-  <textarea id="p2pIn" style="${ta}"></textarea><br><button id="p2pGo" style="${btn}">Connect</button><button id="p2pClose" style="${btn}">Close</button>${stunBox}`;
- else if(kind==='join')d.innerHTML=`<div style="font:bold 18px Georgia;color:#ffe7a8">Join a peer-to-peer game</div>
-  ${relay?`<p style="margin:6px 0">Room code from the host: <input id="p2pRoom" maxlength="4" style="width:70px;text-transform:uppercase;background:#0e0c09;color:#cfe;border:1px solid #665;font:16px monospace"> <button id="p2pRoomGo" style="${btn}">Join</button></p><p style="margin:6px 0;color:#aa9">— or —</p>`:''}
-  <p style="margin:6px 0">1. Paste the host's <b>invite link</b> (or bare code):</p><textarea id="p2pIn" style="${ta}"></textarea><br><button id="p2pGo" style="${btn}">Create reply</button><button id="p2pClose" style="${btn}">Cancel</button>
-  <div id="p2pAns" style="display:none"><p style="margin:6px 0">2. Send this <b>reply link</b> back to the host (it was copied to your clipboard if allowed). The host opens it, pastes it, or scans the QR code:</p>
-  <textarea id="p2pReply" readonly style="${ta}"></textarea><button id="p2pCopyReply" style="${btn}">Copy reply link</button>${qr}
-  <details style="margin:4px 0;color:#aa9"><summary>bare answer code</summary><textarea id="p2pCode" readonly style="${ta}"></textarea><button id="p2pCopy" style="${btn}">Copy code</button></details></div>${stunBox}`;
- else d.innerHTML=`<div style="font:bold 18px Georgia;color:#ffe7a8">Reply link</div><p id="p2pAnsMsg" style="margin:8px 0">Handing the reply to the host tab in this browser…</p>
-  <div id="p2pAnsBox" style="display:none"><p style="margin:6px 0">Paste this into the host's invite dialog:</p><textarea id="p2pCode" readonly style="${ta}"></textarea><button id="p2pCopy" style="${btn}">Copy</button></div>
-  <button id="p2pClose" style="${btn}">Close</button><div id="p2pStatus" style="color:#ffd27a;min-height:18px;margin-top:6px"></div>`;
+  ${relay?`<p style="margin:8px 0">Players choose <i>Join (peer-to-peer)</i> and type the room code <b id="p2pRC" style="font:bold 22px monospace;color:#ffe7a8;letter-spacing:3px">${code||'…'}</b></p>`:''}
+  ${sigBox}
+  <details id="p2pManual" style="margin:8px 0" ${relay&&code?'':'open'}><summary style="color:#aa9;cursor:pointer">No signaling server? Exchange codes by copy-paste instead</summary>
+  <p style="margin:6px 0">1. Send this <b>invite code</b> to the other player (copy-paste it, or let them scan the QR code):</p>
+  <textarea id="p2pCode" readonly style="${ta}" placeholder="creating…"></textarea><br><button id="p2pCopy" style="${btn}">Copy invite code</button>${qr}
+  <p style="margin:6px 0">2. Paste the <b>answer code</b> they send back:</p>
+  <textarea id="p2pIn" style="${ta}"></textarea><br><button id="p2pGo" style="${btn}">Connect</button></details>
+  <button id="p2pClose" style="${btn}">Close</button>${stunBox}`;
+ else d.innerHTML=`<div style="font:bold 18px Georgia;color:#ffe7a8">Join a peer-to-peer game</div>
+  <p style="margin:10px 0 4px">Type the host's <b>room code</b>:</p>
+  <p style="margin:4px 0"><input id="p2pRoom" maxlength="5" autocomplete="off" spellcheck="false" placeholder="ABCD" style="width:120px;text-transform:uppercase;letter-spacing:4px;background:#0e0c09;color:#ffe7a8;border:1px solid #a8844a;font:bold 24px monospace;padding:4px 8px"> <button id="p2pRoomGo" style="${btn};font-size:16px">Join</button> <button id="p2pClose" style="${btn}">Cancel</button></p>
+  ${sigBox}
+  <details id="p2pManual" style="margin:8px 0" ${relay?'':'open'}><summary style="color:#aa9;cursor:pointer">No signaling server? Exchange codes by copy-paste instead</summary>
+  <p style="margin:6px 0">1. Paste the host's <b>invite code</b>:</p><textarea id="p2pIn" style="${ta}"></textarea><br><button id="p2pGo" style="${btn}">Create answer</button>
+  <div id="p2pAns" style="display:none"><p style="margin:6px 0">2. Send this <b>answer code</b> back to the host (copy-paste, or let them scan the QR code):</p>
+  <textarea id="p2pCode" readonly style="${ta}"></textarea><br><button id="p2pCopy" style="${btn}">Copy answer code</button>${qr}</div></details>${stunBox}`;
  document.body.appendChild(d);const $=id=>d.querySelector('#'+id);
  const copyBtn=(b,t)=>{if($(b))$(b).onclick=()=>{p2pCopyText($(t).value);p2pStatus('Copied.');};};
- copyBtn('p2pCopy','p2pCode');copyBtn('p2pCopyLink','p2pLink');copyBtn('p2pCopyRoom','p2pRoomLink');copyBtn('p2pCopyReply','p2pReply');
+ copyBtn('p2pCopy','p2pCode');
+ if($('p2pSigSave'))$('p2pSigSave').onclick=()=>{const v=$('p2pSig').value;if(!sigSave(v)){p2pStatus('Use an address like 192.168.1.20:8080 or wardenfam.com:8080.');return;}const i=sigInfo();$('p2pSigNow').textContent=i?'using '+i.host:'none set';p2pStatus(i?'Signaling server saved: '+i.host:'Signaling server cleared.');};
+ if($('p2pRoom')){$('p2pRoom').addEventListener('input',e=>{e.target.value=sigCodeNorm(e.target.value);});$('p2pRoom').addEventListener('keydown',e=>{if(e.key==='Enter')$('p2pRoomGo').click();});setTimeout(()=>{try{$('p2pRoom').focus();}catch(e){}},0);}
  if($('p2pStun'))$('p2pStun').onchange=e=>{try{localStorage.setItem('kom_stun',e.target.checked?'1':'0');}catch(x){}};
- $('p2pClose').onclick=()=>{if(kind==='invite'){if(o.peer&&o.peer.state!=='open')o.peer.gone();p2pModalClose();}else if(kind==='join'){p2pLeave(true);state='menu';}else p2pModalClose();};
- if(kind==='invite'){if(relay&&code){const c=$('p2pQR');try{QR.draw(c,p2pRoomURL(code));c.style.display='';}catch(e){}}
+ $('p2pClose').onclick=()=>{if(kind==='invite'){if(o.peer&&o.peer.state!=='open')o.peer.gone();p2pModalClose();}else{p2pLeave(true);state='menu';}};
+ if(kind==='invite'){
   $('p2pGo').onclick=async()=>{try{p2pStatus('Connecting…');await p2pAcceptAnswer(o.peer,$('p2pIn').value);}catch(e){p2pStatus(e.message);}};}
  else if(kind==='join'){$('p2pGo').onclick=()=>p2pJoinFrom($('p2pIn').value);
-  if(relay)$('p2pRoomGo').onclick=()=>{p2pStatus('Contacting room…');p2pJoinRoom($('p2pRoom').value.toUpperCase());};}}
-async function p2pJoinFrom(text){if(!p2pDlg||p2pDlg.kind!=='join')return;const d=p2pDlg.el;
- try{p2pStatus('Creating reply…');const a=await p2pJoinWithOffer(text);d.querySelector('#p2pAns').style.display='';const link=p2pLink('answer',a);p2pModalShow(a,link);
-  d.querySelector('#p2pReply').value=link;const ok=await p2pCopyText(link);p2pStatus((ok?'Reply link copied to the clipboard. ':'')+'Waiting for the host to open or paste it…');}catch(e){p2pStatus(e.message);}}
-function p2pModalShow(code,link){if(!p2pDlg)return;const d=p2pDlg.el;const ce=d.querySelector('#p2pCode');if(ce)ce.value=code;const le=d.querySelector('#p2pLink');if(le&&link)le.value=link;
- // with the relay the QR code shows the short room link (set elsewhere); otherwise the invite / reply link
- if(p2pDlg.kind==='invite'&&sigURL()&&p2p&&p2p.code)return;const c=d.querySelector('#p2pQR');if(!c)return;try{QR.draw(c,link||code);c.style.display='';}catch(e){c.style.display='none';}}
+  $('p2pRoomGo').onclick=()=>{const v=$('p2pSig').value.trim();if(v!==sigAddr()&&!sigSave(v)){p2pStatus('Bad signaling server address.');return;}p2pStatus('Contacting room…');p2pJoinRoom($('p2pRoom').value);};}}
+async function p2pJoinFrom(text){if(!p2pDlg||p2pDlg.kind!=='join')return;const d=p2pDlg.el;const md=d.querySelector('#p2pManual');if(md)md.open=true;
+ try{p2pStatus('Creating answer…');const a=await p2pJoinWithOffer(text);d.querySelector('#p2pAns').style.display='';p2pModalShow(a);p2pStatus('Send the answer code to the host, then wait…');}catch(e){p2pStatus(e.message);}}
+function p2pModalShow(code){if(!p2pDlg)return;const d=p2pDlg.el;const ce=d.querySelector('#p2pCode');if(ce)ce.value=code;const c=d.querySelector('#p2pQR');if(!c)return;try{QR.draw(c,code);c.style.display='';}catch(e){c.style.display='none';}}
 function p2pStatus(t){if(p2pDlg){const s=p2pDlg.el.querySelector('#p2pStatus');if(s)s.textContent=t;}}
 function p2pModalClose(peer){if(!p2pDlg)return;if(peer&&p2pDlg.peer!==peer)return;p2pDlg.el.remove();p2pDlg=null;}
 
-// ---- invite / reply links
-function p2pBase(){return location.href.split(/[?#]/)[0];}
-function p2pLink(kind,code){return p2pBase()+'#'+kind+'='+code;}
-function p2pRoomURL(code){return p2pBase()+'?room='+code;}
 async function p2pCopyText(t){try{await navigator.clipboard.writeText(t);return true;}catch(e){}
  try{const x=document.createElement('textarea');x.value=t;x.style.cssText='position:fixed;left:-999px';document.body.appendChild(x);x.select();const ok=document.execCommand('copy');x.remove();return ok;}catch(e){return false;}}
-// answers handed over from another tab of the same browser (a reply link opened there): BroadcastChannel + localStorage fallback
-let p2pBC=null;try{p2pBC=new BroadcastChannel('lowlands-p2p');}catch(e){}
-function p2pPost(m){try{p2pBC&&p2pBC.postMessage(m);}catch(e){}try{localStorage.setItem('kom_p2p_msg',JSON.stringify({...m,n:Math.random()}));}catch(e){}}
-function p2pOnTabMsg(m){if(!m||!m.t)return;
- if(m.t==='answer'&&p2p&&p2p.role==='host'){decodeSig(m.code).then(d=>{const peer=[...p2p.peers].find(q=>q.inv===d.i&&q.pc.signalingState==='have-local-offer');if(!peer||peer.accepting)return;peer.accepting=true;
-   p2pPost({t:'ack',i:d.i});p2pAcceptAnswer(peer,m.code).then(()=>p2pStatus('Reply received from the other tab — connecting…')).catch(e=>p2pStatus(e.message));}).catch(()=>{});}
- else if(m.t==='ack'&&p2pAnsWait&&p2pAnsWait.i===m.i){p2pAnsWait.done=true;const e=document.getElementById('p2pAnsMsg');if(e)e.textContent='Delivered to the host tab. You can close this tab.';}}
-function p2pListenAnswers(){}
-if(p2pBC)p2pBC.onmessage=ev=>p2pOnTabMsg(ev.data);
-window.addEventListener('storage',e=>{if(e.key==='kom_p2p_msg'&&e.newValue){try{p2pOnTabMsg(JSON.parse(e.newValue));}catch(x){}}});
-let p2pAnsWait=null;
-// page opened from a link: ?room=ABCD (server relay, hands-free), #join=<offer> (start joining), #answer=<answer> (hand to the host tab)
-function p2pBoot(){const q=new URLSearchParams(location.search),room=(q.get('room')||'').toUpperCase().replace(/[^A-Z0-9]/g,'');const h=location.hash;
- const strip=()=>{try{history.replaceState(null,'',p2pBase());}catch(e){}};
- if(room&&sigURL()){strip();p2pJoinStart();const r=document.getElementById('p2pRoom');if(r)r.value=room;p2pStatus('Joining room '+room+'…');p2pJoinRoom(room);return;}
- const mj=h.match(/^#join=([A-Za-z0-9_\-]+)/),ma=h.match(/^#answer=([A-Za-z0-9_\-]+)/);
- if(mj){strip();p2pJoinStart();const t=document.getElementById('p2pIn');if(t)t.value=mj[1];p2pJoinFrom(mj[1]);}
- else if(ma){strip();p2pModal('answer',{});const code=ma[1];decodeSig(code).then(d=>{p2pAnsWait={i:d.i,done:false};p2pPost({t:'answer',code});
-   setTimeout(()=>{if(p2pAnsWait&&!p2pAnsWait.done&&p2pDlg&&p2pDlg.kind==='answer'){const e=document.getElementById('p2pAnsMsg');if(e)e.textContent='No host tab with that invite is open in this browser.';
-    const b=document.getElementById('p2pAnsBox');if(b){b.style.display='';document.getElementById('p2pCode').value=p2pLink('answer',code);}}},2500);}).catch(e=>p2pStatus(e.message));}}

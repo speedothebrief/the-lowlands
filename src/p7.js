@@ -200,8 +200,12 @@ function drawLobby(){uiBtns=[];tip=null;const [x,y]=overlayPanel(640,560);const 
   text('Map size:',x+30,y+420,'#ffe7a8','bold 13px Georgia, serif');Object.keys(MAPSIZES).forEach((s,i)=>smallBtn(x+150+i*90,y+404,84,24,MAPSIZES[s].label,()=>netSend({t:'cfg',diff:lobby.diff,fog:lobby.fog,size:s}),{t:'Map size',d:{small:'96×96 tiles (1×)',medium:'144×144 tiles (1.5×)',large:'192×192 tiles (2×)'}[s]},(lobby.size||'small')===s));
   const canStart=lobby.clients.some(c=>c.slot>=0);bigBtn(x+170,y+438,300,canStart?'▶  Start Game':'Take a slot to start',()=>{if(canStart)netSend({t:'start'});},canStart);}
  else text(`Waiting for the host to start…  (AI: ${DIFF[lobby.diff].label}, fog ${lobby.fog?'on':'off'}, map ${(MAPSIZES[lobby.size]||MAPSIZES.small).label})`,W/2,y+400,'#cdbb90','14px Georgia, serif','center');
- if(pp&&p2p&&p2p.role==='host'){text(`Hosted in this browser${p2p.code?` — room code ${p2p.code}`:''}. Empty slots are played by the AI; the AI takes over anyone who disconnects.`,W/2,y+472,'#998','12px Georgia, serif','center');
-  smallBtn(x+30,y+510,200,26,'➕ Invite player (link / QR)',()=>{p2pInvite();},{t:'Create an invite code for one more player'});}
+ if(pp&&p2p&&p2p.role==='host'){
+  if(p2p.code){text('ROOM CODE',x+560,y+28,'#cdbb90','bold 11px Georgia, serif','center');text(p2p.code,x+560,y+60,'#ffe7a8','bold 30px monospace','center');}
+  const si=sigInfo();text(p2p.code?`Players choose Join (peer-to-peer) and type ${p2p.code}${si&&!si.dflt?` (signaling server ${si.host})`:''}. Empty slots are AI; the AI takes over anyone who disconnects.`
+   :p2p.sigState==='connecting'?'Contacting the signaling server for a room code…':`No signaling server${si?' reachable at '+si.host:''} — use Invite (copy-paste codes), or set a server.`,W/2,y+496,p2p.code?'#bfe6a0':'#ffd27a','12px Georgia, serif','center');
+  smallBtn(x+30,y+510,200,26,'➕ Invite player (code)',()=>{p2pInvite();},{t:'Room code, or copy-paste codes when there is no signaling server'});
+  smallBtn(x+400,y+510,210,26,'Signaling server…',()=>{const v=prompt('Signaling server (the machine running node server.js), e.g. 192.168.1.20:8080 or wardenfam.com:8080. Empty = the server this page came from.',sigAddr());if(v!=null&&!sigSave(v))alert('Use an address like 192.168.1.20:8080');},{t:'Where room codes are registered: '+(si?si.host:'none')});}
  else text(pp?'Connected peer-to-peer to the host. Empty slots are played by the AI.':'Others join by opening this same URL on their computer. Empty slots are played by the AI.',W/2,y+480,'#998','12px Georgia, serif','center');
  smallBtn(x+270,y+510,100,26,'Back',()=>{if(pp)p2pLeave(true);state='menu';},{t:pp&&p2p&&p2p.role==='host'?'Close the room':'Return to main menu'});}
 function drawPause(){uiBtns=[];tip=null;const net=mode==='net';const host=net&&lobby&&lobby.host===myCid;const [x,y]=overlayPanel(360,300);
@@ -237,5 +241,5 @@ function frame(now){const dt=Math.min(.1,(now-last)/1000);last=now;
  else{renderWorld(false);drawUI();if(showHelp)drawHelp();else if(state==='paused')drawPause();else if((state==='won'||state==='lost')&&!endShown)drawEnd();}
  }catch(err){console.error(err);window.__lastError=String(err&&err.stack||err);}
  requestAnimationFrame(frame);}
-previewMap();netConnect();p2pBoot();requestAnimationFrame(frame);
+previewMap();netConnect();requestAnimationFrame(frame);
 

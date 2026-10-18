@@ -139,7 +139,7 @@ for(const [sz,seed,mins] of [['small',7,8],['medium',12,6]]){A.setupGame(seed,[{
  for(let s=0;s<30*60*mins;s++){A.sim(A.STEP);if(s%30)continue;const t=A.get().time;
   for(const v of A.get().units){if(v.dead||v.type!=='peasant'||v.owner===0||v.inG)continue;if(!['gather','return','farm','build'].includes(v.state)){last.delete(v.id);continue;}
    const key=[v.state,Math.round(v.x*4),Math.round(v.y*4),v.carry|0,v.bld?Math.round((v.bld.prog+v.bld.hp/v.bld.maxhp)*100):0,v.state==='farm'?Math.floor(t/3):0].join(',');
-   const L=last.get(v.id);if(!L||L.k!==key||v.working&&v.state==='gather')last.set(v.id,{k:key,t});else if(t-L.t>10){bad++;worst=Math.max(worst,t-L.t);L.t=t;}}}
+   const L=last.get(v.id);if(!L||L.k!==key||v.working&&v.state==='gather')last.set(v.id,{k:key,t});else if(t-L.t>10){bad++;worst=Math.max(worst,t-L.t);L.t=t;if(process.env.DBG)console.log('  stuck',sz,t.toFixed(0),v.id,v.owner,v.state,v.x.toFixed(2),v.y.toFixed(2),'carry',v.carry,'job',JSON.stringify(v.job&&{tx:v.job.tx,ty:v.job.ty,rt:v.job.rt,farm:!!v.job.farm}),'bld',v.bld&&v.bld.type,v.bld&&v.bld.built,v.bld&&v.bld.hp|0,'bc',v.bld&&v.bld.bc,'working',v.working,'moving',v.moving,'unstuck',v.unstuck,'drop',v.dropB&&v.dropB.type);}}}
  ok(bad===0,`soak ${sz} ${mins} min: no AI peasant stuck at its job for >10 s (${bad} events, worst ${worst.toFixed(0)} s)`);}
 console.log('--- garrison & Town Bell');
 A.setupGame(2024,[{human:true}],'normal',false);g=A.get();{const K=g.players[0].keep;const P=g.players[0];

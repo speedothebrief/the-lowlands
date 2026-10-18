@@ -56,29 +56,47 @@ The host's browser runs the authoritative simulation (the same code as `server.j
 same lobby/game loop. The other players connect directly to the host over WebRTC DataChannels.
 This works when `index.html` is opened from disk (`file://`) as well as over http.
 
-1. **Host:** Main menu → **Host (peer-to-peer)**. You're in a lobby hosted by your browser.
-2. **Invite:** In the lobby, click **Invite player (link / QR)** and send the **invite link**
-   (*Copy invite link*, or let them scan the QR code).
-   - **Served by `node server.js`:** the dialog shows a short join link such as
-     `http://192.168.1.20:8080/?room=K7QD` (and its QR code). Opening it joins **fully
-     hands-free** through the server relay. Typing the 4-letter room code under *Join* also works.
-   - **No server** (`file://` or any static hosting): the invite link is
-     `…/index.html#join=<offer>`, with the WebRTC offer compressed (deflate-raw + base64url) into
-     the `#fragment`. Fragments are never sent to a web server.
-3. **Join:** Opening the invite link starts joining automatically. With `file://`, open your own
-   copy and paste the link under **Join (peer-to-peer)**, since the host's file path isn't yours.
-   The joiner's page then shows a **reply link** `…#answer=<answer>` with its QR code, and copies
-   it to the clipboard when the browser allows. Send it back to the host.
-4. **Accept:** The host either pastes the reply link (or bare code) into the invite dialog, or
-   just **opens the reply link in the same browser**. The new tab hands the answer to the host
-   tab through BroadcastChannel/localStorage and confirms *Delivered*. Repeat for each extra player.
-   The bare invite/answer codes are still available (under *bare code*) as a copy-paste fallback.
-5. The lobby is the same as the LAN server's: pick slots, change names, and the host sets AI
-   difficulty, fog of war and map size. Empty slots are played by the AI. The host clicks
-   *Start*. Clients send commands and get snapshots at about 15 Hz. If a player disconnects,
-   the AI takes over their kingdom.
+### Main flow: a short room code
+If a **signaling server** is reachable (any running `node server.js`, e.g. the Docker container on
+your Synology), joining takes only a short code:
 
-The link fragment or query is removed from the address bar once it has been read, so reloading doesn't join again.
+1. **Host:** Main menu → **Host (peer-to-peer)**. The lobby shows a **room code** of 4 easy
+   letters in the top-right corner, e.g. `FUTU`. The letters come from `ACDEFHJKMNPRTUVWXY`, with no look-alikes like
+   O/0, I/1/L, S/5, B/8, Z/2. A 5-letter code is used only if the 4-letter ones run short.
+2. **Join:** Main menu → **Join (peer-to-peer)**, type the code (lower case is fine), press Enter.
+   That's it. The server only passes the WebRTC offer/answer along; the game then runs
+   peer-to-peer in the host's browser.
+
+**Signaling server address.** By default it is the server that served the page. To use a page
+opened from disk (`file://`) or from other hosting, enter the address once in the *Signaling
+server* field of the Join dialog, or with the lobby's *Signaling server…* button. Examples:
+`192.168.1.20:8080`, `wardenfam.com:8080` or `https://lowlands.example`. The address is saved
+in localStorage. `ws://` or `wss://` is chosen automatically: wss for https pages or
+`https://` / `wss://` addresses. A browser on an https page can only reach a wss server. The
+relay accepts WebSocket connections from any origin, including `file://` pages (Origin `null`).
+`GET /sig/info` is a CORS-enabled probe.
+
+**Relay limits.** The relay stays lightweight: 64 KB max message size, at most 500 rooms, and
+rooms expire after 6 h (`SIG_ROOM_TTL_MS`) or as soon as the host disconnects. Expiry only stops
+new joins; a game already running is unaffected. Dead sockets are pinged and dropped. Ten wrong
+codes on one connection close it.
+
+### Fallback: copy-paste codes (no signaling server)
+If no signaling server is reachable, for example two laptops with only `index.html` and no
+server, the players swap two codes by hand. This works from `file://` too.
+1. **Host:** Main menu → **Host (peer-to-peer)** → **Invite player (code)**. Copy the
+   **invite code** (about 500 characters) and send it, e.g. by chat or e-mail. A phone can
+   scan the QR code instead.
+2. **Join:** Main menu → **Join (peer-to-peer)** → *No signaling server? Exchange codes…*.
+   Paste the invite code, click **Create answer**, and send the **answer code** back the same way.
+3. **Accept:** The host pastes the answer code into the invite dialog and clicks **Connect**.
+   Repeat for each extra player.
+
+Codes are the WebRTC offer/answer compressed with deflate-raw and base64url. Each invite has its
+own id, so an answer always goes to the right pending invite. The lobby is the same either way:
+pick slots, change names, and the host sets AI difficulty, fog of war and map size. Empty slots
+are played by the AI. The host clicks *Start*. Clients send commands and get snapshots at
+about 15 Hz. If a player disconnects, the AI takes over their kingdom.
 
 **Relay.** With `server.js` the server only relays the WebRTC offer/answer over a `/sig`
 websocket. The game itself runs peer-to-peer in the host's browser. The classic
@@ -94,6 +112,7 @@ base64url, about 500 characters). The QR encoder is built in, with no dependenci
 ## Hosting on Synology (or any Docker host)
 The repo ships with a `Dockerfile` (node:20-alpine, production dependencies only, runs as the
 non-root `node` user, exposes 8080) and a `docker-compose.yml` (`8080:8080`, `restart: unless-stopped`).
+The same container is also a **signaling server** for peer-to-peer games: in the Join dialog, set it as the *Signaling server* (e.g. `192.168.1.20:8080`), and players then join by short room code even from a downloaded `index.html`.
 Anywhere with Docker:
 
 ```bash
@@ -246,8 +265,8 @@ CHROME=/usr/bin/google-chrome node test/ui-test.js      # headless Chrome: build
                                                         # map-size menu, LAN lobby map size, LAN building + bell
 CHROME=/usr/bin/google-chrome node test/p2p-test.js     # (optional: npm i --no-save jsqr, or JSQR=path, for the QR decode check)
                                                         # two Chrome pages: P2P host/join via manual codes (file://) + QR decode,
-                                                        # invite/reply links (#join= / #answer= via BroadcastChannel), lobby, chunked init,
-                                                        # 15 Hz snapshots, commands, disconnect → AI; room code + hands-free ?room= link
+                                                        # lobby, chunked init, 15 Hz snapshots, commands, disconnect → AI; room code,
+                                                        # file:// pages using a saved signaling server by short code, room expiry
 ```
 
 ## Source layout

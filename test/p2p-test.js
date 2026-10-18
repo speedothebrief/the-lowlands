@@ -1,6 +1,7 @@
 // Headless Chrome test of browser peer-to-peer multiplayer (WebRTC DataChannels), two pages:
 //  1) file:// with manual invite/answer codes (+ QR code decodes to the code if jsqr is installed)
 //  2) served by server.js with the room-code signaling relay
+//  3) file:// pages joining by short room code through a saved signaling server; 4) relay room expiry
 //   CHROME=/usr/bin/google-chrome node test/p2p-test.js
 'use strict';
 const puppeteer=require('puppeteer-core');const path=require('path');const {spawn}=require('child_process');
@@ -49,8 +50,8 @@ async function until(p,fn,ms,arg){const t=Date.now();for(;;){const v=await p.eva
  ok(offer&&/^LL[01]/.test(offer),`invite code generated (${offer?offer.length:0} chars)`);
  const qr=await H.evaluate(()=>{const c=document.getElementById('p2pQR');if(!c||!c.width)return null;const d=c.getContext('2d').getImageData(0,0,c.width,c.height);return{w:c.width,h:c.height,d:Array.from(d.data)};});
  ok(!!qr&&qr.w>50,'QR code drawn for the invite ('+(qr?qr.w:0)+'px)');
- const link=await H.evaluate(()=>document.getElementById('p2pLink').value);ok(/#join=LL[01][\w-]+$/.test(link)&&link.endsWith(offer),'invite link carries the offer in the #fragment ('+link.length+' chars)');
- if(jsQR&&qr){const r=jsQR(new Uint8ClampedArray(qr.d),qr.w,qr.h);ok(r&&r.data===link,'QR code decodes back to the exact invite link');}else console.log('  (jsqr not installed: QR decode check skipped)');
+ if(jsQR&&qr){const r=jsQR(new Uint8ClampedArray(qr.d),qr.w,qr.h);ok(r&&r.data===offer,'QR code decodes back to the exact invite code');}else console.log('  (jsqr not installed: QR decode check skipped)');
+ ok(await H.evaluate(()=>!document.querySelector('#p2pModal textarea[id*=Link],#p2pRoomLink,#p2pReply')&&!/https?:|file:|#join|#answer/.test(document.getElementById('p2pModal').textContent)),'no invite/reply links in the dialog — plain codes only');
  await J.bringToFront();await sleep(200);await J.mouse.click(340+305+100,120+466+19);
  ok(await until(J,()=>!!document.getElementById('p2pIn')&&p2p&&p2p.role==='join',2000),'Join button opens the join dialog');
  await J.evaluate(c=>{document.getElementById('p2pIn').value=c;document.getElementById('p2pGo').click();},offer);
@@ -62,24 +63,6 @@ async function until(p,fn,ms,arg){const t=Date.now();for(;;){const v=await p.eva
  if(!lob){console.log(await H.evaluate(()=>JSON.stringify({st:(document.getElementById('p2pStatus')||{}).textContent,peers:[...p2p.peers].map(p=>[p.pc.connectionState,p.pc.iceConnectionState,p.pc.signalingState,p.dc.readyState,p.pc.localDescription.sdp.split('\n').filter(l=>/candidate/.test(l))])})));console.log(await J.evaluate(()=>JSON.stringify({st:(document.getElementById('p2pStatus')||{}).textContent,pc:[p2p.pc.connectionState,p2p.pc.iceConnectionState],c:p2p.pc.localDescription.sdp.split('\n').filter(l=>/candidate/.test(l))})));}
  ok(lob==='Hana,Jo','joiner connected over WebRTC and sees the lobby ('+lob+')');
  ok(await until(H,()=>!document.getElementById('p2pModal'),2000),'invite dialog closes once the player is connected');
- // ---- invite LINK flow: K opens the #join= link (auto-answers), the host opens the #answer= reply link in another tab
- await H.evaluate(()=>p2pInvite());const link2=await until(H,()=>{const e=document.getElementById('p2pLink');return e&&e.value.includes('#join=')?e.value:null;},8000);
- const K=await page('join-link');await K.goto(link2);
- const reply=await until(K,()=>{const e=document.getElementById('p2pReply');return e&&e.value.includes('#answer=')?e.value:null;},8000);
- ok(!!reply,'opening the invite link auto-joins and shows a reply link');
- ok(await K.evaluate(()=>!location.hash),'the invite fragment is removed from the address bar');
- const R=await page('reply-tab');await R.goto(reply);
- ok(await until(H,()=>lobby&&lobby.clients.length===3,8000),'opening the reply link in the host browser hands it to the host tab (BroadcastChannel/localStorage) → third player connected');
- ok(await until(R,()=>/Delivered/.test((document.getElementById('p2pAnsMsg')||{}).textContent||''),3000),'the reply tab confirms delivery');
- ok(await until(K,()=>state==='lobby'&&netKind==='p2p',3000),'the link joiner is in the lobby');
- await R.close();await closePage(K);await until(H,()=>lobby&&lobby.clients.length===2,5000);
- // pasting a reply LINK (not just the code) into the invite dialog works too
- await H.evaluate(()=>p2pInvite());const link3=await until(H,()=>{const e=document.getElementById('p2pLink');return e&&e.value.includes('#join=')?e.value:null;},8000);
- const K2=await page('join-paste');await K2.goto(FILE);await sleep(300);await K2.evaluate(l=>{p2pJoinStart();document.getElementById('p2pIn').value=l;document.getElementById('p2pGo').click();},link3);
- const reply2=await until(K2,()=>{const e=document.getElementById('p2pReply');return e&&e.value.includes('#answer=')?e.value:null;},8000);
- await H.evaluate(r=>{document.getElementById('p2pIn').value=r;document.getElementById('p2pGo').click();},reply2);
- ok(await until(H,()=>lobby&&lobby.clients.length===3,8000),'pasting the invite link on the joiner and the reply link on the host connects');
- await closePage(K2);await until(H,()=>lobby&&lobby.clients.length===2,5000);
  // lobby: slots, names, settings, start
  await H.evaluate(()=>{netSend({t:'slot',slot:0});netSend({t:'cfg',diff:'hard',fog:true,size:'medium'});});await J.evaluate(()=>{netSend({t:'slot',slot:0});netSend({t:'slot',slot:2});netSend({t:'start'});});
  await sleep(500);const lj=await J.evaluate(()=>({sl:lobby.clients.map(c=>c.name+':'+c.slot).join(','),diff:lobby.diff,size:lobby.size,inGame:lobby.inGame}));
@@ -109,20 +92,35 @@ async function until(p,fn,ms,arg){const t=Date.now();for(;;){const v=await p.eva
  for(let i=0;i<50&&!out.includes('running');i++)await sleep(100);
  const URL=`http://127.0.0.1:${PORT}/`;const H2=await page('host2'),J2=await page('join2');await H2.goto(URL);await J2.goto(URL);await sleep(600);
  await H2.evaluate(()=>p2pHost());const code=await until(H2,()=>p2p&&p2p.code,4000);
- ok(/^[A-Z2-9]{4}$/.test(code||''),'served page: the host gets a room code from the relay ('+code+')');
+ ok(/^[ACDEFHJKMNPRTUVWXY]{4,5}$/.test(code||''),'served page: the host gets a room code from the relay ('+code+')');
  await J2.evaluate(()=>p2pJoinStart());await J2.evaluate(c=>{document.getElementById('p2pRoom').value=c;document.getElementById('p2pRoomGo').click();},code);
  const l2=await until(J2,()=>state==='lobby'&&netKind==='p2p'&&lobby&&lobby.clients.length===2?lobby.p2p:null,10000);
  ok(l2===true,'joining by room code connects peer-to-peer (no codes to copy)');
- // hands-free join link with the relay: http://host:port/?room=CODE
- await H2.evaluate(()=>p2pInvite());const rl=await until(H2,()=>{const e=document.getElementById('p2pRoomLink');return e&&e.value.includes('?room=')?e.value:null;},4000);
- ok(rl===URL+'?room='+code,'served page: the invite dialog offers a ?room= join link ('+rl+')');
- const J3=await page('join3');await J3.goto(rl);
- ok(await until(J3,()=>state==='lobby'&&netKind==='p2p'&&lobby&&lobby.clients.length===3,10000),'opening the ?room= link joins fully hands-free');
- ok(await J3.evaluate(()=>!location.search),'the ?room= query is removed after joining');
  await J2.evaluate(()=>{p2pJoinStart();});await J2.evaluate(()=>{document.getElementById('p2pRoom').value='ZZZZ';document.getElementById('p2pRoomGo').click();});
- ok(await until(J2,()=>/No room/.test((document.getElementById('p2pStatus')||{}).textContent||''),3000),'unknown room code is reported');
+ ok(await until(J2,()=>/No open room/.test((document.getElementById('p2pStatus')||{}).textContent||''),3000),'unknown room code is reported');
  // the classic server lobby still works from the same page
  await J2.evaluate(()=>{p2pLeave(true);openServerLobby();});ok(await until(J2,()=>state==='lobby'&&netKind==='server'&&lobby&&!lobby.p2p,3000),'LAN server lobby still available alongside P2P');
- ok(errs.length===0,'no page errors'+(errs.length?': '+errs.slice(0,5).join(' | '):''));
+ // ===== 3) file:// pages using the server only for signaling: the joiner types just the short code
+ {const info=await fetch(URL+'sig/info');ok(info.ok&&info.headers.get('access-control-allow-origin')==='*','/sig/info answers with CORS for other origins / file://');}
+ const H3=await page('host-file-sig'),J4=await page('join-file-sig');await H3.goto(FILE);await J4.goto(FILE);await sleep(300);
+ await H3.evaluate(p=>localStorage.setItem('kom_sig','127.0.0.1:'+p),PORT);
+ await H3.evaluate(()=>p2pHost());const code3=await until(H3,()=>p2p&&p2p.code,4000);
+ ok(/^[ACDEFHJKMNPRTUVWXY]{4,5}$/.test(code3||''),'file:// host registers a short room code via the saved signaling server ('+code3+')');
+ await J4.evaluate(()=>p2pJoinStart());
+ ok(await J4.evaluate(()=>/127\.0\.0\.1/.test(document.getElementById('p2pSigNow').textContent)&&document.activeElement&&document.activeElement.id==='p2pRoom'),'join dialog: room code field focused, saved server shown');
+ await J4.type('#p2pRoom',' '+code3.toLowerCase()+'\n');
+ ok(await until(J4,()=>state==='lobby'&&netKind==='p2p'&&lobby&&lobby.clients.length===2,10000),'file:// joiner connects by typing only the short code (lower-case is fine)');
+ await J4.evaluate(()=>{p2pLeave(true);localStorage.setItem('kom_sig','127.0.0.1:65530');p2pJoinStart();document.getElementById('p2pRoom').value='ACDE';document.getElementById('p2pRoomGo').click();});
+ ok(await until(J4,()=>/Can't reach/.test((document.getElementById('p2pStatus')||{}).textContent||''),8000),'an unreachable signaling server is reported');
+ await J4.evaluate(()=>{p2pLeave(true);localStorage.removeItem('kom_sig');});await H3.evaluate(()=>p2pLeave(true));
+ // ===== 4) rooms expire on the relay
+ {const WS=require('ws');const P2=PORT+1;const s2=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT:P2,SIG_ROOM_TTL_MS:'1500'}});let o2='';s2.stdout.on('data',d=>o2+=d);
+  for(let i=0;i<50&&!o2.includes('running');i++)await sleep(100);
+  const h=new WS(`ws://127.0.0.1:${P2}/sig`,{headers:{Origin:'null'}});const hm=[];h.on('message',d=>hm.push(JSON.parse(d)));await new Promise(r=>h.on('open',r));h.send(JSON.stringify({t:'host'}));await sleep(300);
+  const c=(hm.find(m=>m.t==='code')||{}).code;ok(!!c,'relay accepts a WebSocket with Origin "null" (file:// page) and hands out a code');
+  await sleep(2600);const j=new WS(`ws://127.0.0.1:${P2}/sig`);const jm=[];j.on('message',d=>jm.push(JSON.parse(d)));await new Promise(r=>j.on('open',r));j.send(JSON.stringify({t:'join',code:c}));await sleep(300);
+  ok(jm.some(m=>m.t==='nocode')&&hm.some(m=>m.t==='expired'),'rooms expire after their TTL (host told, code no longer joinable)');
+  h.close();j.close();s2.kill();}
+ const errs2=errs.filter(e=>!e.includes('127.0.0.1:65530'));ok(errs2.length===0,'no page errors (besides the deliberate unreachable server)'+(errs2.length?': '+errs2.slice(0,5).join(' | '):''));
  await br.close();srv.kill();console.log(fails?fails+' FAILURES':'ALL P2P TESTS PASSED');process.exit(fails?1:0);
 })().catch(e=>{console.error(e);process.exit(1);});
