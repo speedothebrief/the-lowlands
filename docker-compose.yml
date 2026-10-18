@@ -1,0 +1,10 @@
+services:
+  the-lowlands:
+    build: .
+    image: the-lowlands:latest
+    container_name: the-lowlands
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+    restart: unless-stopped
