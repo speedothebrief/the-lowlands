@@ -33,13 +33,26 @@ console.log('--- doubled resource nodes');
 
 console.log('--- Keep / Fortress fire rate');
 A.setupGame(777,[{human:true}],'normal',false);g=A.get();const kp=g.players[0].keep;
-const countArrows=(sec)=>{let n=0;const seen=new Set();for(let s=0;s<30*sec;s++){A.sim(A.STEP);for(const p of A.get().projs)if(p.k==='arrow'&&!seen.has(p)){seen.add(p);n++;}}return n;};
+const countArrows=(sec,stat)=>{let n=0,maxP=0,dmg=0;const seen=new Set();for(let s=0;s<30*sec;s++){A.sim(A.STEP);const pj=A.get().projs;maxP=Math.max(maxP,pj.length);for(const p of pj)if(p.k==='arrow'&&!seen.has(p)){seen.add(p);n+=p.n||1;dmg+=p.dmg;}}if(stat){stat.maxP=maxP;stat.dmg=dmg;}return n;};
 {const foe=A.spawnUnit('knight',kp.x+3,kp.y+3,1);foe.hp=foe.maxhp=1e9;foe.state='hold';
- const a=countArrows(10);ok(a>=24&&a<=27,`Keep fires ~2.5 arrows/s at a single target (${a} in 10 s; old rate was 0.625/s)`);
- const fx=A.spawnBld('fortress',kp.tx+6,kp.ty-1,0,true);kp.cd=1e9;const f=countArrows(10);ok(f>=48&&f<=53,`Fortress fires ~5 arrows/s, double the Keep (${f} in 10 s)`);
- // garrisoned archers add arrows
+ const a=countArrows(10);ok(a>=48&&a<=53,`Keep fires 4 arrows per 0.8 s volley = 5/s (${a} in 10 s)`);
+ const fx=A.spawnBld('fortress',kp.tx+6,kp.ty-1,0,true);kp.cd=1e9;const f=countArrows(10);ok(f>=94&&f<=104,`Fortress fires 8 arrows per volley = 10/s, double the Keep (${f} in 10 s)`);
+ ok(A.BLD.fortress.shoot.range===A.UNITS.catapult.range+3,`Fortress range = catapult range + 3 (${A.BLD.fortress.shoot.range} tiles)`);
+ // range: a target 10.5 tiles away is shot by the Fortress, not by the Keep (range 7)
+ {foe.x=fx.x+10.5;foe.y=fx.y;kp.cd=0;const n=countArrows(4);kp.cd=1e9;ok(n>=16&&Math.hypot(foe.x-kp.x,foe.y-kp.y)>7,`Fortress hits a target 10.5 tiles away (${n} arrows in 4 s)`);foe.x=kp.x+3;foe.y=kp.y+3;run(.5);}
+ // garrisoned archers add 2 arrows each, other garrisoned units 1
  const ar=[0,1,2,3].map(i=>A.spawnUnit('archer',fx.x+(i%2),fx.y+2.6,0));A.applyCmd(0,{t:'garrison',ids:ar.map(u=>u.id),bid:fx.id});run(6);
- ok(fx.gar.length===4,`4 archers garrisoned in the Fortress (${fx.gar.length}/30)`);const f2=countArrows(10);ok(f2>=f+40,`garrisoned archers add one arrow each per volley (${f2} vs ${f} in 10 s)`);
+ ok(fx.gar.length===4,`4 archers garrisoned in the Fortress (${fx.gar.length}/30)`);const f2=countArrows(10);ok(f2>=f+95&&f2<=f+105,`garrisoned archers add 2 arrows each per volley (${f2} vs ${f} in 10 s)`);
+ const pz=[0,1,2,3].map(i=>A.spawnUnit('peasant',fx.x+(i%2),fx.y+2.6,0)).concat([0,1].map(i=>A.spawnUnit('spearman',fx.x+i,fx.y+2.6,0)));A.applyCmd(0,{t:'garrison',ids:pz.map(u=>u.id),bid:fx.id});run(6);
+ ok(fx.gar.length===10,`+4 peasants +2 spearmen garrisoned (${fx.gar.length})`);const f3=countArrows(10);ok(f3>=f2+72&&f3<=f2+78,`every garrisoned peasant/spearman adds 1 arrow per volley (${f3} vs ${f2} in 10 s)`);
+ // batching: a packed Keep (40) firing at one target merges extra arrows (damage kept), few projectile objects
+ fx.dead=true;run(.1);kp.cd=0;const many=[];for(let i=0;i<40;i++)many.push(A.spawnUnit(i%3?'peasant':'archer',kp.x+(i%5)*.3,kp.y+2.6+Math.floor(i/5)*.2,0));
+ A.applyCmd(0,{t:'garrison',ids:many.map(u=>u.id),bid:kp.id});run(8);const ga=kp.gar.filter(u=>u.type==='archer').length,go=kp.gar.length-ga;
+ const st={};const nk=countArrows(8,st);const per=4+2*ga+go;const expD=10*(4*10+2*ga*7+go*3);
+ ok(kp.gar.length===40&&Math.abs(nk-per*10)<=per,`full Keep: ${per} arrows per volley (4 + 2×${ga} archers + ${go} others) → ${nk} in 8 s`);
+ ok(st.maxP<=40,`…but merged into ≤16 projectiles per volley (max ${st.maxP} in flight)`);
+ ok(Math.abs(st.dmg-expD)<=expD*.12,`merged arrows keep the full damage (${st.dmg|0} vs ~${expD})`);
+ A.applyCmd(0,{t:'unload',bid:kp.id});run(.5);
  foe.dead=true;run(.1);}
 
 console.log('--- construction by peasants');

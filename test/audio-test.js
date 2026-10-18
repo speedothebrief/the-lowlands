@@ -66,7 +66,7 @@ const SHOTS=path.join(require('os').tmpdir(),'kom-shots');require('fs').mkdirSyn
  console.log('  (LAN state)',await a.evaluate(()=>JSON.stringify({mode,state,MAP,np:players.length,lobby:lobby&&{size:lobby.size,inGame:lobby.inGame}})));
  await a.evaluate(()=>{showHelp=false;const k=players[3].keep;issue({t:'attack',ids:units.filter(u=>u.owner===me).map(u=>u.id),tid:k.id,x:k.x,y:k.y});});
  let bOn=false,aOn=false;for(let i=0;i<90&&!(bOn&&aOn);i++){await sleep(1000);bOn=bOn||await b.evaluate(()=>{AU.tick();return AU.inBattle;});aOn=aOn||await a.evaluate(()=>{AU.tick();return AU.inBattle;});}
- ok(bOn,"LAN: Bob's battle music starts when Alice's troops hit his keep");
+ ok(bOn,"LAN: Bob's battle music starts when Alice's troops attack his keep (it shoots back)");
  ok(aOn,"LAN: Alice's battle music starts when Bob's keep shoots her units");
  ok(await a.evaluate(()=>mode==='net'&&AU.stats.played>0),'LAN client plays SFX from snapshot events');
  await b.screenshot({path:path.join(SHOTS,'audio-lan.png')});

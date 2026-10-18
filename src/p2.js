@@ -170,7 +170,7 @@ function updateBld(b,dt){const D=BLD[b.type];const P=players[b.owner];
   else{b.noFundsT=time;}if(!afford(P,rc)&&time-(b.rfT||-99)>8){b.rfT=time;if(P.isHuman){msg(`Not enough wood/stone to repair the ${D.name}.`,'#ff9a8a',b.owner);sfx('err',b.x,b.y,b.owner);}}}
  if(D.income)P.res.gold+=D.income*dt*(P.isAI?DIFF[difficulty].mult:1);
  if(D.shoot){b.cd-=dt;if(b.cd<=0){const S=D.shoot;const cands=[];queryUnits(b.x,b.y,S.range+1,v=>{if(!v.dead&&isEnemy(b.owner,v.owner)){const d=distTo(v,b);if(d<=S.range)cands.push([d,v]);}});
-  if(cands.length){cands.sort((a,c)=>a[0]-c[0]);sfx('bow',b.x,b.y,b.owner);const na=b.gar&&b.gar.length?garArchers(b):0;for(let k=0;k<S.n+na;k++){const v=cands[k%cands.length][1];projs.push({k:'arrow',sx:b.x,sy:b.y,sz:b.type==='tower'?52:40,t:v,tx:v.x,ty:v.y,life:0,dur:Math.max(.15,dist(b.x,b.y,v.x,v.y)/13),dmg:k<S.n?S.atk:UNITS.archer.atk,owner:b.owner,atype:k<S.n?'tower':'archer',att:null});}b.cd=S.cd;}else b.cd=.3;}}
+  if(cands.length){cands.sort((a,c)=>a[0]-c[0]);sfx('bow',b.x,b.y,b.owner);fireVolley(b,S,cands);b.cd=S.cd;}else b.cd=.3;}}
  if(b.queue.length){const ut=b.queue[0],UD=UNITS[ut];b.trainT+=dt*(P.isAI?Math.sqrt(DIFF[difficulty].mult):1);
   if(b.trainT>=UD.time){if(P.pop+UD.pop<=P.popCap){b.queue.shift();b.trainT=0;b.blocked=false;P.pop+=UD.pop;P.stats.trained++;spawnFrom(b,ut);sfx('trained',b.x,b.y,b.owner,ut==='peasant'?0:1);}
    else{b.trainT=UD.time;if(!b.blocked&&P.isHuman){msg('Population limit reached — build Houses!','#ffd27a',b.owner);sfx('err',b.x,b.y,b.owner);}b.blocked=true;}}}}
@@ -292,3 +292,21 @@ function unstickPeasant(u){u.path=null;u.pend=null;u.stuckN=2;const j=u.job;
  if(u.state==='farm'){const f=j&&j.farm;u.job=null;const nf=blds.find(b=>!b.dead&&b!==f&&b.owner===u.owner&&b.type==='farm'&&b.built&&farmFree(b)&&dist(b.x,b.y,u.x,u.y)<20);if(nf&&assignFarm(u,nf))return;u.state='idle';return;}
  if(u.state==='build'){if(u.bld&&!u.bld.built&&distTo(u,u.bld)>1.0)u.bld.unreach=(u.bld.unreach||0)+1;u.badBld=u.bld;u.badBldT=time;u.bld=null;u.state='idle';resumeWork(u);return;}
  if(u.state==='garrison'){u.garB=null;u.state='idle';resumeWork(u);return;}}
+
+// ===== building volleys =====
+// base arrows + 1 per garrisoned peasant/infantry (weaker shot) + 2 per garrisoned archer.
+// Arrows beyond VOLLEY_VIS per volley (or when the world holds PROJ_CAP projectiles) are merged into an arrow already
+// flying at the same target: damage is preserved, p.n counts how many arrows it stands for (fewer objects to sim/render/send).
+const GAR_ARROW_DMG=3,VOLLEY_VIS=16,PROJ_CAP=700;
+function garVolley(b){let a=0,o=0;if(b.gar)for(const u of b.gar){if(u.type==='archer')a++;else o++;}return{a,o};}
+function fireVolley(b,S,cands){const g=garVolley(b);const specs=[];
+ // your defences engaging counts as combat for your battle music (silent 'atk' marker, throttled like hits)
+ {const P=players[b.owner];if(P&&P.isHuman&&time-(P.atkT||-9)>0.25){P.atkT=time;sfx('atk',b.x,b.y,b.owner);}}
+ for(let k=0;k<S.n;k++)specs.push([S.atk,'tower']);
+ for(let k=0;k<g.a*2;k++)specs.push([UNITS.archer.atk,'archer']);
+ for(let k=0;k<g.o;k++)specs.push([GAR_ARROW_DMG,'archer']);
+ const cap=projs.length>=PROJ_CAP?Math.min(4,cands.length):VOLLEY_VIS;const made=[],byKey=new Map();
+ specs.forEach(([dmg,at],k)=>{const v=cands[k%cands.length][1];const key=v.id+at;
+  if(made.length<cap){const p={k:'arrow',sx:b.x,sy:b.y,sz:b.type==='tower'?52:40,t:v,tx:v.x,ty:v.y,life:0,dur:Math.max(.15,dist(b.x,b.y,v.x,v.y)/13),dmg,owner:b.owner,atype:at,att:null,n:1};
+   projs.push(p);made.push(p);if(!byKey.has(key))byKey.set(key,p);return;}
+  const into=byKey.get(key)||made.find(p=>p.t===v)||made[k%made.length];into.dmg+=dmg;into.n++;});}

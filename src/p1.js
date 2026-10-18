@@ -24,7 +24,7 @@ const UNITS={
 const BONUS={peasant:{bld:0.3},spearman:{cav:3,bld:0.5},archer:{inf:1.25,cav:0.7,bld:0.15,siege:0.6},knight:{rng:1.6,siege:1.5,bld:0.5},catapult:{bld:3.5,inf:0.8,cav:0.6,rng:0.8,siege:1.5},tower:{cav:0.9,siege:0.8}};
 const ALLRES=['food','wood','stone','gold'];
 const BLD={
- keep:{name:'Keep',w:3,h:3,hp:3000,cost:{},time:1,pop:10,drop:ALLRES,train:['peasant'],shoot:{range:7,atk:10,cd:0.8,n:2},gar:40,sight:10,val:600,desc:'Heart of your kingdom: fires 2 arrows every 0.8 s. Lose it and you are defeated.'},
+ keep:{name:'Keep',w:3,h:3,hp:3000,cost:{},time:1,pop:10,drop:ALLRES,train:['peasant'],shoot:{range:7,atk:10,cd:0.8,n:4},gar:40,sight:10,val:600,desc:'Heart of your kingdom: fires 4 arrows every 0.8 s (+1 per garrisoned unit, +2 per archer). Lose it and you are defeated.'},
  house:{name:'House',w:2,h:2,hp:450,cost:{wood:50},time:14,pop:8,sight:4,val:50,desc:'+8 population.'},
  farm:{name:'Farm',w:2,h:2,hp:250,cost:{wood:60},time:10,sight:3,val:60,walk:true,desc:'2 peasants can farm food here. Right-click with peasants.'},
  lumber:{name:'Lumber Camp',w:2,h:2,hp:450,cost:{wood:80},time:14,drop:['wood'],sight:5,val:80,desc:'Wood drop-off. Build near forests.'},
@@ -36,8 +36,8 @@ const BLD={
  workshop:{name:'Siege Workshop',w:3,h:3,hp:1100,cost:{wood:200,stone:100,gold:50},time:35,train:['catapult'],sight:6,val:350,desc:'Builds catapults.'},
  wall:{name:'Wall',w:1,h:1,hp:700,cost:{stone:6},time:4,wall:true,sight:2,val:6,desc:'Blocks movement. Click-drag to build a line.'},
  gate:{name:'Gate',w:1,h:1,hp:900,cost:{stone:20,wood:10},time:6,wall:true,gate:true,sight:3,val:30,desc:'Wall segment your own units can pass.'},
- tower:{name:'Tower',w:1,h:1,hp:900,cost:{stone:100,wood:40},time:22,shoot:{range:7,atk:9,cd:1.4,n:1},gar:6,sight:9,val:140,desc:'Shoots arrows at enemies in range. Garrisons 6 infantry/peasants.'},
- fortress:{name:'Fortress',w:3,h:3,hp:3600,cost:{stone:400,wood:200,gold:150},time:55,pop:10,drop:ALLRES,shoot:{range:8,atk:10,cd:0.8,n:4},gar:30,train:['spearman','archer','knight'],sight:10,val:750,desc:'Mighty stronghold: +10 pop, drop-off, trains troops, fires 4 arrows every 0.8 s (twice the Keep).'},
+ tower:{name:'Tower',w:1,h:1,hp:900,cost:{stone:100,wood:40},time:22,shoot:{range:7,atk:9,cd:1.4,n:1},gar:6,sight:9,val:140,desc:'Shoots arrows at enemies in range. Garrisons 6 infantry/peasants; each adds an arrow (archers 2).'},
+ fortress:{name:'Fortress',w:3,h:3,hp:3600,cost:{stone:400,wood:200,gold:150},time:55,pop:10,drop:ALLRES,shoot:{range:11.5,atk:10,cd:0.8,n:8},gar:30,train:['spearman','archer','knight'],sight:12,val:750,desc:'Mighty stronghold: +10 pop, drop-off, trains troops, fires 8 arrows every 0.8 s (twice the Keep, +1 per garrisoned unit, +2 per archer) out to 11.5 tiles (catapult range + 3).'},
 };
 const GAR_T=['peasant','spearman','archer'];const canGar=u=>GAR_T.includes(u.type);
 const BUILD_MENU=['house','farm','lumber','quarry','mine','market','barracks','stable','workshop','wall','gate','tower','fortress'];

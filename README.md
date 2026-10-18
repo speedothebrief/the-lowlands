@@ -162,12 +162,19 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
   ground (land, in bounds) that isn't occupied by another building, resource node, or enemy unit.
   There is no "near your buildings" or "away from enemies" radius, so you expand by
   sending peasants to walk there and build. The placement ghost turns red and shows the reason.
-- **Keep / Fortress arrows.** The Keep fires 2 arrows every 0.8 s (4× its old rate).
-  The Fortress fires 4 arrows every 0.8 s, which is 2× the Keep and 8× the Keep's old rate.
-  Volleys spread over nearby enemies, and a lone target still takes the full volley.
+- **Keep / Fortress arrows.** The Keep fires 4 arrows every 0.8 s (range 7). The Fortress fires
+  8 arrows every 0.8 s, twice the Keep, out to 11.5 tiles, which is catapult range (8.5) + 3,
+  so it outranges siege. Each arrow does 10 damage. Volleys spread over nearby enemies, and a
+  lone target still takes the full volley.
 - **Garrisons.** Keep 40, Fortress 30, Tower 6. Peasants, spearmen and archers can garrison; knights and catapults cannot.
   Right-click your Keep/Fortress/Tower with them, or press **G** to use the nearest one with room.
-  Units inside are invulnerable and hidden from the map, and each garrisoned archer adds one arrow per volley.
+  Units inside are invulnerable and hidden from the map, and **every garrisoned unit shoots**:
+  each peasant or spearman adds 1 arrow per volley (3 damage), and each archer adds 2 arrows
+  (7 damage each, the archer's attack). Example: a full Keep with 14 archers and 26 peasants
+  fires 4 + 28 + 26 = 58 arrows per volley. Towers work the same way on top of their 1 arrow
+  per 1.4 s. To keep big volleys cheap, at most 16 arrow objects fly per volley (and only 4 once
+  700 projectiles are in the air); extra arrows are merged into one already flying at the same
+  target. Total damage stays the same, and the bow and hit sounds are rate-limited.
   Peasants carrying resources drop them off as they enter a Keep or Fortress. **U** or *Unload* releases everyone
   toward the rally point; peasants go back to their previous work. If the building is
   destroyed, the occupants spill out alive.
@@ -219,7 +226,7 @@ first click or key press (browser autoplay policy). Volumes and mute are saved i
 ## Tests
 ```bash
 npm test                     # two simulated WebSocket clients: lobby, start, command sync, ownership checks, disconnect → AI
-node test/rules-test.js      # gather claim slots, Keep/Fortress fire rates, peasant construction/repair/refunds, free placement,
+node test/rules-test.js      # gather claim slots, Keep/Fortress fire rates + range, garrison arrows + merging, peasant construction/repair/refunds, free placement,
                              # builder auto-start, stuck watchdog + no-stuck soak, garrisons + Town Bell (+ AI bell), doubled resource nodes, map sizes
 node test/sim-test.js [ai] [small|medium|large] [minutes]   # headless soak: AI economy, building, waves, surrender, tick cost
 npm i --no-save puppeteer-core            # once, for the two browser tests (needs a local Chrome/Chromium)
