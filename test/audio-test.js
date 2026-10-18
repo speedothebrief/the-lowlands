@@ -56,7 +56,7 @@ const SHOTS=path.join(require('os').tmpdir(),'kom-shots');require('fs').mkdirSyn
  await p.keyboard.press('m');
  await p.screenshot({path:path.join(SHOTS,'audio-menu.png')});
  // ---- LAN: local player's own kingdom drives battle music
- const srv=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT:'8131'}});await sleep(900);
+ const srv=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT:'8131',LOWLANDS_NO_UPDATE:'1'}});await sleep(900);
  const a=await page('A'),b=await page('B');await a.goto('http://127.0.0.1:8131/');await b.goto('http://127.0.0.1:8131/');await sleep(900);
  for(const q of [a,b]){await q.bringToFront();await q.mouse.click(5,5);}
  await a.evaluate(()=>{openServerLobby();netSend({t:'slot',slot:0});});await b.evaluate(()=>{openServerLobby();netSend({t:'slot',slot:3});});await sleep(400);

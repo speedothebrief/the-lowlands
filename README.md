@@ -46,6 +46,31 @@ Allow "incoming network connections" when macOS asks, so others can join. Unzip 
 **Windows:** SmartScreen may say "Windows protected your PC". Click **More info → Run anyway**.
 When the firewall asks, allow **private networks**.
 
+**Automatic updates.** The host app keeps itself up to date from the GitHub releases.
+- **When it checks:** at every launch and every 4 hours, through GitHub's public API with no
+  token. Startup never waits more than about 3 s. Offline or rate-limited checks are retried
+  later.
+- **The banner shows the status,** e.g. `Version 1.1.0 · up to date` or
+  `update v1.2.0 ready — installs when no game is running`.
+- **Installing:** when a newer version exists, the app downloads the zip for your computer
+  (Mac arm64/x64, Windows, Linux). It checks the size against GitHub and the SHA-256 against the
+  release's `SHA256SUMS` file. It also test-runs the new program (`--version`) before using it.
+- **It never interrupts a game.** It installs only once no LAN game is running, and no
+  peer-to-peer game has been relayed through the host in the last 2 minutes.
+- **Swap and restart:** it replaces its own program file, then restarts in the same window
+  (Windows: a new console window), on the same port, and prints the banner again.
+- **Windows:** a running `.exe` can't be overwritten, so it is renamed to `….exe.old`, the new
+  one takes its place, and the next start deletes the `.old` file.
+- **Open browser tabs** reconnect and reload themselves. A page in the middle of a game is only
+  told to reload afterwards. The main menu shows the game and server versions, e.g.
+  `v1.1.0 · server v1.1.0`, plus any pending update.
+- **Turn it off** with the environment variable `LOWLANDS_NO_UPDATE=1`, or start the app with
+  `--no-update`.
+- **Folder must be writable.** If the app's folder isn't, e.g. it was run from a read-only disk
+  image, the banner says so; download the new zip by hand.
+
+The 1.0.0 apps have no updater, so they have to be replaced by hand once.
+
 **Building the apps yourself:** `node host/build.js [mac-arm64] [mac-x64] [windows] [linux]`
 writes everything to `dist/`, which is gitignored. It uses
 [`@yao-pkg/pkg`](https://github.com/yao-pkg/pkg) through `npx`, and cross-builds every platform
@@ -192,6 +217,13 @@ Anywhere with Docker:
 docker compose up -d --build     # then open http://<host-ip>:8080/
 ```
 
+**Updating the Docker / Synology server** means rebuilding (or pulling) the image:
+`git pull && docker compose up -d --build`. In Container Manager, *Project → Action → Build* after
+updating the folder. The server never replaces itself. It checks GitHub at startup and every
+4 hours, logs `Update available: v…` and shows "Server update v… available — rebuild/pull the
+server" in the browsers' main menu. Set `LOWLANDS_NO_UPDATE=1` in `docker-compose.yml` to turn the
+check off. After a rebuild, open browser tabs reconnect, notice the new version and reload.
+
 **Option A — Container Manager (DSM 7.2+)**
 1. Copy the `the-lowlands` folder to the NAS, e.g. `/volume1/docker/the-lowlands`
    (File Station, or `git clone` over SSH).
@@ -336,6 +368,9 @@ npm i --no-save puppeteer-core            # once, for the two browser tests (nee
 CHROME=/usr/bin/google-chrome node test/audio-test.js   # headless Chrome: audio gating, BattleTimer unit test, SFX, sliders, LAN battle music
 CHROME=/usr/bin/google-chrome node test/ui-test.js      # headless Chrome: build hotkeys, context keys, garrison/bell/repair UI,
                                                         # map-size menu, LAN lobby map size, LAN building + bell
+node test/updater-test.js            # self-updater against a local fake GitHub release server (builds an old + a new app):
+                                     # offline/hanging/rate-limited checks, LOWLANDS_NO_UPDATE, size + SHA-256, no restart mid-game,
+                                     # swap + restart on the same port, browser tab reload, start.sh restart loop
 node test/host-app-test.js [binary]   # packaged host app (after node host/build.js): banner + LAN URLs, browser launch,
                                      # HTTP, /ws, /sig, port-in-use fallback
 CHROME=/usr/bin/google-chrome node test/p2p-test.js     # (optional: npm i --no-save jsqr, or JSQR=path, for the QR decode check)
@@ -353,4 +388,4 @@ CHROME=/usr/bin/google-chrome node test/p2p-test.js     # (optional: npm i --no-
 `p8room.js` holds the lobby and authoritative game loop, shared by `server.js` and the browser P2P host.
 `p10qr.js` is the QR encoder and `p10p2p.js` the WebRTC peer-to-peer layer.
 `p0client, p4–p7` contain rendering, UI, input and networking. `p9audio.js` is the WebAudio engine.
-`host/launcher.js` is the entry point of the double-click host apps (banner, browser launch, keeps the window open); `host/build.js` packages them into `dist/`.
+`host/launcher.js` is the entry point of the double-click host apps (banner, browser launch, keeps the window open); `host/updater.js` checks GitHub releases and performs the self-update; `host/build.js` packages the apps into `dist/` (plus `SHA256SUMS`).

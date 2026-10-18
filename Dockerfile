@@ -5,6 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY index.html server.js ./
+COPY host/updater.js ./host/
 RUN chown -R node:node /app
 USER node
 EXPOSE 8080 3478/udp

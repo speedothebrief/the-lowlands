@@ -5,7 +5,7 @@
 // `ldid` is on PATH. Zips store Unix permissions so the launcher and binary stay executable after unzipping on a Mac.
 'use strict';
 const fs=require('fs'),path=require('path'),zlib=require('zlib'),{execFileSync}=require('child_process');
-const ROOT=path.join(__dirname,'..'),DIST=path.join(ROOT,'dist');const VER=require('../package.json').version;
+const ROOT=path.join(__dirname,'..'),DIST=path.resolve(process.env.LOWLANDS_DIST||path.join(ROOT,'dist'));const VER=process.env.LOWLANDS_VERSION||require('../package.json').version;   // LOWLANDS_VERSION: override (tests)
 const T={
  'mac-arm64':{pkg:'node20-macos-arm64',bin:'the-lowlands-host',mac:true},
  'mac-x64':{pkg:'node20-macos-x64',bin:'the-lowlands-host',mac:true},
@@ -59,7 +59,8 @@ const COMMAND=`#!/bin/bash
 cd "$(dirname "$0")" || exit 1
 xattr -dr com.apple.quarantine . 2>/dev/null   # unzip copies the download quarantine onto the binary too
 chmod +x ./the-lowlands-host 2>/dev/null
-./the-lowlands-host
+export LOWLANDS_SUPERVISED=1                   # exit code 75 = "updated, start me again"
+while true; do ./the-lowlands-host "$@"; code=$?; [ "$code" -eq 75 ] || break; done
 echo; read -r -p "The host has stopped. Press Enter to close this window." _
 `;
 // --- minimal zip writer (deflate) keeping Unix permissions (version made by = Unix) ---
@@ -78,14 +79,22 @@ function filesOf(dir,base){const r=[{name:base+'/'}];for(const f of fs.readdirSy
  if(st.isDirectory())r.push(...filesOf(p,base+'/'+f));else r.push({name:base+'/'+f,data:fs.readFileSync(p),mode:st.mode});}return r;}
 
 fs.mkdirSync(DIST,{recursive:true});
+// the version baked into the binaries (read by server.js / launcher.js); removed again afterwards so a source checkout
+// keeps reporting package.json's version
+const INFO=path.join(__dirname,'build-info.json');fs.writeFileSync(INFO,JSON.stringify({version:VER,built:new Date().toISOString()})+'\n');
+process.on('exit',()=>{try{fs.unlinkSync(INFO);}catch(e){}});
+console.log('Building The Lowlands host apps v'+VER);
 for(const k of list){const t=T[k],name='The-Lowlands-Host-'+k,dir=path.join(DIST,name);fs.rmSync(dir,{recursive:true,force:true});fs.mkdirSync(dir,{recursive:true});
  const bin=path.join(dir,t.bin);console.log(`\n== ${name}  (${t.pkg})`);
  execFileSync(pkgCmd[0],[...pkgCmd[1],ROOT,'--targets',t.pkg,'--output',bin,'--compress','GZip','--no-bytecode','--public-packages','*','--public'],{stdio:'inherit',cwd:ROOT,shell:process.platform==='win32'});
  fs.chmodSync(bin,0o755);
  if(t.mac){fs.writeFileSync(path.join(dir,'Start The Lowlands Host.command'),COMMAND,{mode:0o755});fs.chmodSync(path.join(dir,'Start The Lowlands Host.command'),0o755);fs.writeFileSync(path.join(dir,'READ ME FIRST.txt'),README_MAC);}
  else if(k==='windows')fs.writeFileSync(path.join(dir,'READ ME FIRST.txt'),README_WIN.replace(/\n/g,'\r\n'));
- else{fs.writeFileSync(path.join(dir,'start.sh'),'#!/bin/sh\ncd "$(dirname "$0")" && exec ./the-lowlands-host\n',{mode:0o755});fs.chmodSync(path.join(dir,'start.sh'),0o755);fs.writeFileSync(path.join(dir,'READ ME FIRST.txt'),README_LINUX);}
+ else{fs.writeFileSync(path.join(dir,'start.sh'),'#!/bin/sh\ncd "$(dirname "$0")" || exit 1\nexport LOWLANDS_SUPERVISED=1   # exit code 75 = updated, start again\nwhile :; do ./the-lowlands-host "$@"; c=$?; [ "$c" -eq 75 ] || exit "$c"; done\n',{mode:0o755});fs.chmodSync(path.join(dir,'start.sh'),0o755);fs.writeFileSync(path.join(dir,'READ ME FIRST.txt'),README_LINUX);}
  const zip=path.join(DIST,name+'.zip');writeZip(zip,filesOf(dir,name));
  if(t.tgz)execFileSync('tar',['-czf',name+'.tar.gz',name],{cwd:DIST});
  for(const f of [zip,...(t.tgz?[path.join(DIST,name+'.tar.gz')]:[])])console.log(`   ${path.relative(ROOT,f)}  ${(fs.statSync(f).size/1048576).toFixed(1)} MB`);}
+// SHA256SUMS over every archive in dist/ (the updater verifies downloads against it)
+const sums=fs.readdirSync(DIST).filter(f=>/\.(zip|tar\.gz)$/.test(f)).sort().map(f=>require('crypto').createHash('sha256').update(fs.readFileSync(path.join(DIST,f))).digest('hex')+'  '+f);
+fs.writeFileSync(path.join(DIST,'SHA256SUMS'),sums.join('\n')+'\n');console.log('   dist/SHA256SUMS');
 console.log(`\nThe Lowlands ${VER}: done.`);

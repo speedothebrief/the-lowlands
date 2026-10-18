@@ -2,7 +2,7 @@
 'use strict';
 const {spawn}=require('child_process');const path=require('path');const WebSocket=require('ws');
 const PORT=8123;let fails=0;const ok=(c,m)=>{console.log((c?'PASS ':'FAIL ')+m);if(!c)fails++;};
-const srv=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT}});
+const srv=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT,LOWLANDS_NO_UPDATE:'1'}});
 let srvOut='';srv.stdout.on('data',d=>srvOut+=d);srv.stderr.on('data',d=>{srvOut+=d;process.stderr.write(d);});
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function client(name){return new Promise(res=>{const ws=new WebSocket(`ws://127.0.0.1:${PORT}/ws`);const c={ws,name,snaps:[],lobby:null,init:null,msgs:[],send:o=>ws.send(JSON.stringify(o))};

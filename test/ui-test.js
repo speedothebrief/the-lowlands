@@ -72,7 +72,7 @@ const SHOTS=path.join(require('os').tmpdir(),'kom-shots');require('fs').mkdirSyn
  // help overlay lists the keys
  await p.evaluate(()=>{showHelp=true;});await sleep(150);await p.screenshot({path:path.join(SHOTS,'ui-help.png')});await p.evaluate(()=>{showHelp=false;});
  // ---- LAN lobby: host picks Large, both clients get the same 192x192 world
- const srv=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT:'8133'}});await sleep(900);
+ const srv=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT:'8133',LOWLANDS_NO_UPDATE:'1'}});await sleep(900);
  const a=await page('A'),b=await page('B');await a.goto('http://127.0.0.1:8133/');await b.goto('http://127.0.0.1:8133/');await sleep(900);
  await a.evaluate(()=>{openServerLobby();netSend({t:'slot',slot:0});});await b.evaluate(()=>{openServerLobby();netSend({t:'slot',slot:2});});await sleep(400);
  await a.bringToFront();await sleep(100);

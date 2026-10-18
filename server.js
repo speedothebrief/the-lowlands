@@ -5,6 +5,9 @@
 const http=require('http'),fs=require('fs'),path=require('path'),os=require('os'),vm=require('vm');
 const {WebSocketServer}=require('ws');
 const PORT=+process.env.PORT||8080;
+// version: build-info.json (written by host/build.js, may override for a tag) or package.json
+const VERSION=(()=>{try{return require('./host/build-info.json').version;}catch(e){}try{return require('./package.json').version;}catch(e){}return '0.0.0';})();
+const UPD=require('./host/updater.js');
 const HTML_PATH=path.join(__dirname,'index.html');
 const html=fs.readFileSync(HTML_PATH,'utf8');
 const a=html.indexOf('/*SIM-BEGIN*/'),b=html.indexOf('/*SIM-END*/');
@@ -20,6 +23,7 @@ const server=http.createServer((req,res)=>{
  const u=(req.url||'/').split('?')[0];
  if(u==='/'||u==='/index.html'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache'});res.end(fs.readFileSync(HTML_PATH));}
  else if(u==='/favicon.ico'){res.writeHead(204);res.end();}
+ else if(u==='/version'){res.writeHead(200,{'Content-Type':'application/json','Access-Control-Allow-Origin':'*','Cache-Control':'no-cache'});res.end(JSON.stringify(verMsg()));}
  // tiny CORS-enabled probe so pages from other origins (or file://) can check this signaling server
  else if(u==='/sig/info'){res.writeHead(200,{'Content-Type':'application/json','Access-Control-Allow-Origin':'*','Cache-Control':'no-cache'});res.end(JSON.stringify({game:'the-lowlands',sig:true,rooms:sigRooms.size}));}
  else{res.writeHead(404,{'Content-Type':'text/plain'});res.end('Not found');}});
@@ -32,6 +36,7 @@ const createRoom=new Function(html.slice(ra,rb)+';return createRoom;')();
 const room=createRoom(API,{log:m=>console.log(m)});
 
 wss.on('connection',(ws,req)=>{
+ ws.send(JSON.stringify(verMsg()));   // browsers show it in the menu and reload when it changes after an update
  const h=room.join(s=>{if(ws.readyState===1)ws.send(s);},req.socket.remoteAddress);
  ws.on('message',data=>{let m;try{m=JSON.parse(data);}catch(e){return;}h.msg(m);});
  ws.on('close',()=>h.leave());});
@@ -61,14 +66,15 @@ sigs.on('connection',ws=>{const id=sigN++;let hostOf=null,joinedTo=null,misses=0
    if(!r){tx(ws,{t:'nocode'});if(++misses>=10)ws.close();return;}   // no brute-forcing codes over one socket
    if(joinedTo)joinedTo.peers.delete(id);joinedTo=r;r.peers.set(id,ws);tx(r.ws,{t:'peer',id,name:String(m.name||'').slice(0,16),standby:!!m.standby,inv:m.inv?String(m.inv).slice(0,12):undefined});}
   // fallback transport when WebRTC can't connect: game messages relayed host <-> joiner over these sockets
-  else if(m.t==='relay'&&typeof m.data==='string'){if(hostOf){const r=sigRooms.get(hostOf);tx(r&&r.peers.get(m.to),{t:'relay',data:m.data});}else if(joinedTo)tx(joinedTo.ws,{t:'relay',from:id,data:m.data});}
+  else if(m.t==='relay'&&typeof m.data==='string'){lastRelay=Date.now();if(hostOf){const r=sigRooms.get(hostOf);tx(r&&r.peers.get(m.to),{t:'relay',data:m.data});}else if(joinedTo)tx(joinedTo.ws,{t:'relay',from:id,data:m.data});}
   else if(m.t==='sig'&&typeof m.data==='string'){if(hostOf){const r=sigRooms.get(hostOf);tx(r&&r.peers.get(m.to),{t:'sig',data:m.data});}else if(joinedTo)tx(joinedTo.ws,{t:'sig',from:id,data:m.data});}});
  ws.on('close',()=>{if(hostOf&&sigRooms.get(hostOf)&&sigRooms.get(hostOf).ws===ws)sigClose(hostOf);if(joinedTo){joinedTo.peers.delete(id);tx(joinedTo.ws,{t:'peergone',id});}});});
 // ===== tiny STUN responder (RFC 5389 Binding → XOR-MAPPED-ADDRESS) on UDP STUN_PORT (default 3478, 0 = off) =====
 // Browsers that hide local addresses (Brave's default WebRTC policy) only produce candidates via STUN; this lets a LAN
 // without internet still get them from the game server. Stateless, a few lines, no dependencies.
 let stunPort=process.env.STUN_PORT==null?3478:+process.env.STUN_PORT;
-if(stunPort){const stun=require('dgram').createSocket('udp4');
+let stunSock=null;
+if(stunPort){const stun=require('dgram').createSocket('udp4');stunSock=stun;
  stun.on('message',(m,r)=>{if(m.length<20||m.readUInt16BE(0)!==0x0001||m.readUInt32BE(4)!==0x2112A442)return;
   const at=Buffer.alloc(12);at.writeUInt16BE(0x0020,0);at.writeUInt16BE(8,2);at[5]=1;at.writeUInt16BE(r.port^0x2112,6);
   r.address.split('.').forEach((v,i)=>{at[8+i]=(+v)^[0x21,0x12,0xA4,0x42][i];});
@@ -79,17 +85,28 @@ if(stunPort){const stun=require('dgram').createSocket('udp4');
 setInterval(()=>{for(const ws of sigs.clients){if(!ws.alive){ws.terminate();continue;}ws.alive=false;try{ws.ping();}catch(e){}}
  const now=Date.now();for(const [c,r] of sigRooms)if(now-r.t0>SIG_TTL)sigClose(c,'expired');},Math.min(30000,Math.max(500,SIG_TTL/4))).unref();
 
+// ===== updates: check GitHub releases; the packaged host app installs them itself when no game is running =====
+let lastRelay=0;
+const updater=UPD.createUpdater({version:VERSION,selfUpdate:!!process.pkg&&!!module.exports.restart,log:m=>console.log(m),
+ isIdle:()=>!room.inGame&&Date.now()-lastRelay>120e3,           // never interrupt a LAN game or a relayed P2P game
+ restart:u=>module.exports.restart(u)});
+function verMsg(){return{t:'version',version:VERSION,latest:updater.latest,update:updater.status,text:updater.text(),selfUpdate:updater.selfUpdate};}
+updater.on(()=>{const s=JSON.stringify(verMsg());for(const c of wss.clients)if(c.readyState===1)c.send(s);});
+// close everything so a restarted copy can take over the port
+function shutdown(cb){for(const c of wss.clients){try{c.close(1012,'restarting');}catch(e){}}for(const c of sigs.clients){try{c.terminate();}catch(e){}}
+ try{stunSock&&stunSock.close();}catch(e){}room.close();server.close(()=>cb&&cb());setTimeout(()=>cb&&cb(),3000).unref();for(const c of wss.clients)try{c.terminate();}catch(e){}}
 // listen on PORT; when PORT wasn't chosen explicitly and it's busy (e.g. a second copy is running), try the next ports
 function lanIPs(){const ips=[];for(const list of Object.values(os.networkInterfaces()))for(const n of list||[])if((n.family==='IPv4'||n.family===4)&&!n.internal)ips.push(n.address);return ips;}
 const fallback=!process.env.PORT&&!process.env.PORT_STRICT;let port=PORT;
 server.on('error',e=>{if(e.code==='EADDRINUSE'&&fallback&&port<PORT+19){console.log(`  port ${port} is in use, trying ${port+1}…`);port++;setTimeout(()=>server.listen(port,'0.0.0.0'),50);return;}
  if(e.code==='EADDRINUSE')console.error(`\nPort ${port} is already in use (is The Lowlands already running?). Close the other program or set PORT=<number>.`);
  else console.error('Server error: '+e.message);module.exports.onFatal(e);});
-server.on('listening',()=>{const p=server.address().port,ips=lanIPs();module.exports.port=p;
+server.on('listening',()=>{const p=server.address().port,ips=lanIPs();module.exports.port=p;module.exports.fellBack=p!==PORT;
  if(module.exports.banner)return module.exports.banner(p,ips);
  console.log('The Lowlands LAN server running.');
  console.log(`  Local:  http://localhost:${p}/`);
  for(const ip of ips)console.log(`  LAN:    http://${ip}:${p}/   <- share this with other players`);
  if(!ips.length)console.log('  (no LAN IPv4 interface found)');});
-module.exports={server,lanIPs,port:null,banner:null,onFatal:()=>process.exit(1)};
-server.listen(port,'0.0.0.0');
+Object.assign(module.exports,{server,lanIPs,port:null,banner:null,onFatal:()=>process.exit(1),VERSION,updater,shutdown,wsClients:()=>wss.clients.size});
+// start on the next tick, so the launcher (host app) can install its banner/restart hooks right after require()
+setImmediate(()=>{updater.selfUpdate=!!process.pkg&&!!module.exports.restart&&updater.status!=='disabled';module.exports.updateCheck=updater.start();server.listen(port,'0.0.0.0');});

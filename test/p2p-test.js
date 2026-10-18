@@ -21,7 +21,7 @@ const BLOCK=()=>{const R=window.RTCPeerConnection;window.RTCPeerConnection=funct
    pc.setRemoteDescription=d=>srd(strip(d));Object.defineProperty(pc,'localDescription',{get:()=>strip(R.prototype.__lookupGetter__('localDescription').call(pc))});return pc;};window.RTCPeerConnection.prototype=R.prototype;};
 const valOf=(p,id)=>until(p,i=>{const e=document.getElementById(i);return e&&e.value.length>20?e.value:null;},8000,id);
 (async()=>{
- const srv=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT,STUN_PORT:STUN}});let out='';srv.stdout.on('data',d=>out+=d);srv.stderr.on('data',d=>out+=d);
+ const srv=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT,STUN_PORT:STUN,LOWLANDS_NO_UPDATE:'1'}});let out='';srv.stdout.on('data',d=>out+=d);srv.stderr.on('data',d=>out+=d);
  for(let i=0;i<150&&!(out.includes('STUN')&&out.includes('running'));i++)await sleep(100);ok(out.includes('STUN:   udp port '+STUN),'server runs its STUN responder'+(out.includes('STUN:')?'':': '+out));
  const br=await puppeteer.launch({executablePath:process.env.CHROME||'/usr/bin/google-chrome',headless:'new',args:['--no-sandbox']});
  const errs=[];const page=async tag=>{const p=await br.newPage();await p.setViewport({width:1280,height:800});p.on('pageerror',e=>errs.push(tag+': '+e.message));p.on('console',m=>{if(m.type()==='error')errs.push(tag+': '+m.text());});return p;};
@@ -118,7 +118,7 @@ const valOf=(p,id)=>until(p,i=>{const e=document.getElementById(i);return e&&e.v
  await J4.evaluate(()=>{p2pLeave(true);localStorage.setItem('kom_sig','127.0.0.1:65530');p2pJoinStart();document.getElementById('p2pRoom').value='ACDE';document.getElementById('p2pRoomGo').click();});
  ok(await until(J4,()=>/Can't reach/.test((document.getElementById('p2pStatus')||{}).textContent||''),8000),'an unreachable signaling server is reported');
  await J4.evaluate(()=>{p2pLeave(true);localStorage.clear();});await H3.evaluate(()=>{p2pLeave(true);localStorage.clear();});
- {const WS=require('ws');const P2=PORT+1;const s2=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT:P2,STUN_PORT:0,SIG_ROOM_TTL_MS:'1500'}});let o2='';s2.stdout.on('data',d=>o2+=d);
+ {const WS=require('ws');const P2=PORT+1;const s2=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT:P2,STUN_PORT:0,LOWLANDS_NO_UPDATE:'1',SIG_ROOM_TTL_MS:'1500'}});let o2='';s2.stdout.on('data',d=>o2+=d);
   for(let i=0;i<50&&!o2.includes('running');i++)await sleep(100);
   const h=new WS(`ws://127.0.0.1:${P2}/sig`,{headers:{Origin:'null'}});const hm=[];h.on('message',d=>hm.push(JSON.parse(d)));await new Promise(r=>h.on('open',r));h.send(JSON.stringify({t:'host'}));await sleep(300);
   const c=(hm.find(m=>m.t==='code')||{}).code;ok(!!c,'relay accepts a WebSocket with Origin "null" (file:// page) and hands out a code');
