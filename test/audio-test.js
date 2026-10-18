@@ -59,7 +59,7 @@ const SHOTS=path.join(require('os').tmpdir(),'kom-shots');require('fs').mkdirSyn
  const srv=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT:'8131'}});await sleep(900);
  const a=await page('A'),b=await page('B');await a.goto('http://127.0.0.1:8131/');await b.goto('http://127.0.0.1:8131/');await sleep(900);
  for(const q of [a,b]){await q.bringToFront();await q.mouse.click(5,5);}
- await a.evaluate(()=>{state='lobby';netSend({t:'slot',slot:0});});await b.evaluate(()=>{state='lobby';netSend({t:'slot',slot:3});});await sleep(400);
+ await a.evaluate(()=>{openServerLobby();netSend({t:'slot',slot:0});});await b.evaluate(()=>{openServerLobby();netSend({t:'slot',slot:3});});await sleep(400);
  await a.evaluate(()=>netSend({t:'cfg',diff:'normal',fog:false}));await sleep(200);await a.evaluate(()=>netSend({t:'start'}));await sleep(1500);
  // Alice sends her 5 peasants against Bob's keep (Stonehold, top corner); the keep shoots back
  for(let i=0;i<20&&!(await a.evaluate(()=>mode==='net'&&players[3]&&!!players[3].keep));i++)await sleep(250);

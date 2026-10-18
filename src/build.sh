@@ -5,6 +5,9 @@ printf '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8"><meta name=
 echo '/*SIM-BEGIN*/'
 cat p1.js p2.js p3.js p8.js
 echo '/*SIM-END*/'
-cat p0client.js p4.js p5.js p6.js p9audio.js p7.js
+echo '/*ROOM-BEGIN*/'
+cat p8room.js
+echo '/*ROOM-END*/'
+cat p0client.js p4.js p5.js p6.js p9audio.js p10qr.js p10p2p.js p7.js
 printf '</script>\n</body></html>\n'
 } > ../index.html

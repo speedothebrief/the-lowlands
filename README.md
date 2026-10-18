@@ -51,6 +51,35 @@ AI kingdoms surrender when their Keep is destroyed, or when their army and econo
 are crushed compared to whoever attacked them. The winner of a surrender takes half of the
 loser's stockpile as tribute.
 
+## Peer-to-peer multiplayer (in the browser, no server needed)
+The host's browser runs the authoritative simulation (the same code as `server.js`) and the
+same lobby/game loop. The other players connect directly to the host over WebRTC DataChannels.
+This works when `index.html` is opened from disk (`file://`) as well as over http.
+
+1. **Host:** Main menu → **Host (peer-to-peer)**. You're in a lobby hosted by your browser.
+2. **Invite:** In the lobby, click **Invite player (code / QR)**. Send the *invite code* to the
+   other player (copy-paste it in chat or e-mail, or let them scan the QR code).
+3. **Join:** The other player chooses Main menu → **Join (peer-to-peer)**, pastes the invite code
+   and clicks *Create answer*. They send the *answer code* (or its QR code) back to you.
+4. **Connect:** Paste the answer code into the invite dialog and click *Connect*.
+   Repeat steps 2–4 for each extra player (up to 4 kingdoms).
+5. The lobby is the same as the LAN server's: pick slots, change names, and the host sets AI
+   difficulty, fog of war and map size. Empty slots are played by the AI. The host clicks
+   *Start*. Clients send commands and get snapshots at about 15 Hz. If a player disconnects,
+   the AI takes over their kingdom.
+
+**Room codes.** If the page is served by `node server.js`, the host also gets a 4-letter
+**room code**. Joiners just type it under *Join*. The server only relays the WebRTC
+offer/answer over a `/sig` websocket; the game itself runs peer-to-peer in the host's
+browser. The classic server-hosted LAN lobby keeps working as before.
+
+**Networking notes.** By default only host (LAN) ICE candidates are used, with no STUN server,
+so the players must be on the same network. Tick *use a public STUN server* in the dialog to
+try across the internet; without TURN, strict NATs may still block it. The host's simulation is
+driven by a Worker timer, so it keeps running when the host's tab is in the background. If the
+host closes their tab, the game ends for everyone. Codes are compressed (deflate-raw +
+base64url, about 500 characters). The QR encoder is built in, with no dependencies.
+
 ## Hosting on Synology (or any Docker host)
 The repo ships with a `Dockerfile` (node:20-alpine, production dependencies only, runs as the
 non-root `node` user, exposes 8080) and a `docker-compose.yml` (`8080:8080`, `restart: unless-stopped`).
@@ -106,6 +135,16 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
 - **One gatherer per node.** Every tree, rock or gold tile has a claim slot; farms keep 2 slots.
   A peasant sent to an occupied node, or arriving at one, switches to the nearest free node
   of the same type instead of shoving. Claims are released on death, on a new order, and when the node runs out.
+- **Builders start working at what they built.** When a Farm is finished, its builders farm it
+  (2 slots; the new farm is reserved for its builders). When a Lumber Camp, Quarry or Gold Mine is
+  finished, its builders gather the nearest wood, stone or gold around it, each on a free claim slot.
+  This applies to human and AI builders.
+- **No stuck peasants.** Peasants walk to a reachable tile next to their target instead of a blocked
+  edge point. They skip a drop site or node they couldn't reach, and they get path priority after
+  waiting. When two of them meet head-on in a corridor, they slide past each other. A watchdog
+  handles anything left over: a peasant that sits at its job without progress for about 6 s
+  releases its claim and picks the nearest free node of the same type, or goes idle so it can be
+  reassigned. AI repair crews that can't pay are released, and AI sites nobody can reach are cancelled.
 - **Peasants build everything.** Placing a building pays its cost and creates a construction site.
   The selected peasants walk over and build it; with none selected, the nearest idle peasant goes.
   Work only progresses while a builder is on site; one builder takes the listed build time.
@@ -181,15 +220,20 @@ first click or key press (browser autoplay policy). Volumes and mute are saved i
 ```bash
 npm test                     # two simulated WebSocket clients: lobby, start, command sync, ownership checks, disconnect → AI
 node test/rules-test.js      # gather claim slots, Keep/Fortress fire rates, peasant construction/repair/refunds, free placement,
-                             # garrisons + Town Bell (+ AI bell), doubled resource nodes, map sizes
+                             # builder auto-start, stuck watchdog + no-stuck soak, garrisons + Town Bell (+ AI bell), doubled resource nodes, map sizes
 node test/sim-test.js [ai] [small|medium|large] [minutes]   # headless soak: AI economy, building, waves, surrender, tick cost
 npm i --no-save puppeteer-core            # once, for the two browser tests (needs a local Chrome/Chromium)
 CHROME=/usr/bin/google-chrome node test/audio-test.js   # headless Chrome: audio gating, BattleTimer unit test, SFX, sliders, LAN battle music
 CHROME=/usr/bin/google-chrome node test/ui-test.js      # headless Chrome: build hotkeys, context keys, garrison/bell/repair UI,
                                                         # map-size menu, LAN lobby map size, LAN building + bell
+CHROME=/usr/bin/google-chrome node test/p2p-test.js     # (optional: npm i --no-save jsqr, or JSQR=path, for the QR decode check)
+                                                        # two Chrome pages: P2P host/join via manual codes (file://) + QR decode,
+                                                        # lobby, chunked init, 15 Hz snapshots, commands, disconnect → AI; room-code relay
 ```
 
 ## Source layout
 `index.html` is built from the files in `src/`. Run `sh src/build.sh` to rebuild it.
 `p1–p3, p8` contain the shared simulation: rules, map gen, A*, combat, construction, garrison, AI, commands and snapshots.
+`p8room.js` holds the lobby and authoritative game loop, shared by `server.js` and the browser P2P host.
+`p10qr.js` is the QR encoder and `p10p2p.js` the WebRTC peer-to-peer layer.
 `p0client, p4–p7` contain rendering, UI, input and networking. `p9audio.js` is the WebAudio engine.

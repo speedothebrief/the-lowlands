@@ -9,6 +9,7 @@
     "test:rules": "node test/rules-test.js",
     "test:soak": "node test/sim-test.js",
     "test:audio": "node test/audio-test.js",
+    "test:p2p": "node test/p2p-test.js",
     "test:ui": "node test/ui-test.js"
   },
   "dependencies": {

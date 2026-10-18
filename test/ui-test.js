@@ -74,10 +74,10 @@ const SHOTS=path.join(require('os').tmpdir(),'kom-shots');require('fs').mkdirSyn
  // ---- LAN lobby: host picks Large, both clients get the same 192x192 world
  const srv=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT:'8133'}});await sleep(900);
  const a=await page('A'),b=await page('B');await a.goto('http://127.0.0.1:8133/');await b.goto('http://127.0.0.1:8133/');await sleep(900);
- await a.evaluate(()=>{state='lobby';netSend({t:'slot',slot:0});});await b.evaluate(()=>{state='lobby';netSend({t:'slot',slot:2});});await sleep(400);
+ await a.evaluate(()=>{openServerLobby();netSend({t:'slot',slot:0});});await b.evaluate(()=>{openServerLobby();netSend({t:'slot',slot:2});});await sleep(400);
  await a.bringToFront();await sleep(100);
  // host clicks "Large" in the lobby (panel 640x560 -> x0=320,y0=120; buttons at x0+150+i*90, y0+404)
- await a.mouse.click(320+150+180+40,120+404+12);await sleep(300);
+ await a.mouse.click(320+150+180+40,120+404+12);await sleep(800);
  ok(await b.evaluate(()=>lobby&&lobby.size==='large'),'LAN lobby: host picks Large and every client sees it');
  await a.evaluate(()=>netSend({t:'start'}));await sleep(2500);
  const sa=await a.evaluate(()=>({mode,MAP,n:resT.length,keep:players[me].keep&&[players[me].keep.x,players[me].keep.y]}));const sb=await b.evaluate(()=>({mode,MAP,n:resT.length}));

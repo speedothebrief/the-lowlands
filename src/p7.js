@@ -1,5 +1,5 @@
 // ===== client: commands =====
-function issue(c){if(mode==='net'){if(ws&&ws.readyState===1)ws.send(JSON.stringify({t:'cmd',c}));}else applyCmd(me,c);}
+function issue(c){if(mode==='net')netSend({t:'cmd',c});else applyCmd(me,c);}
 function marker(x,y,c){markers.push({x,y,c,t:time});}
 const BH={keep:95,tower:78,fortress:80,wall:24,gate:28,farm:4,house:30,market:24};
 function entVisible(e){if(e.inG)return false;if(!fogOn||e.owner===me)return true;if(e.kind==='unit')return visAt(e.x,e.y)===2;return visAt(e.x,e.y)>0;}
@@ -75,7 +75,7 @@ window.addEventListener('mouseup',e=>{
 cv.addEventListener('wheel',e=>{e.preventDefault();if(!inGame())return;zoomAt(mouse.x,mouse.y,e.deltaY<0?1.12:1/1.12);},{passive:false});
 function zoomAt(sx,sy,f){const px=(sx-W/2)/cam.z+cam.x,py=(sy-H/2)/cam.z+cam.y;cam.z=clamp(cam.z*f,0.45,2.2);cam.x=px-(sx-W/2)/cam.z;cam.y=py-(sy-H/2)/cam.z;clampCam();}
 function clampCam(){cam.x=clamp(cam.x,-MAP*32,MAP*32);cam.y=clamp(cam.y,0,MAP*32);}
-window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(e.target&&e.target.tagName==='INPUT')return;
+window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'))return;
  if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k))e.preventDefault();
  keys.add(k);if(k==='m'&&!e.repeat&&!(buildMenuOpen&&inGame())){AU.init();AU.toggleMute();msg(AU.S.muted?'Sound muted (M)':'Sound on (M)','#cdbb90',me);}if(!inGame())return;
  if(buildMenuOpen&&state==='play'&&k.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey){keys.delete(k);const ty=BUILD_KEY_OF[k];buildMenuOpen=false;
@@ -114,13 +114,16 @@ function previewMap(){setMapSize(mapSize);genMap(Math.floor(Math.random()*1e9));
  players=KINGDOMS.map((k,i)=>({id:i,name:k.name,short:k.short,color:k.color,pers:k.pers,isHuman:i===0,res:{food:0,wood:0,stone:0,gold:0},surrendered:false,stats:{trained:0,killed:0,lost:0}}));}
 
 // ===== client: networking =====
-let ws=null,netAvailable=false,lobby=null,myCid=null,snapRecvT=0,snapT=0,SNAP_DT=1/15,cmap=new Map();
+let ws=null,conn=null,netKind=null,srvCid=null,srvLobby=null,netAvailable=false,lobby=null,myCid=null,snapRecvT=0,snapT=0,SNAP_DT=1/15,cmap=new Map();
 function myName(){try{return localStorage.getItem('kom_name')||'';}catch(e){return '';}}
-function netSend(o){if(ws&&ws.readyState===1)ws.send(JSON.stringify(o));}
+// netKind: 'server' (LAN server lobby over /ws) or 'p2p' (browser-hosted game over WebRTC); conn is the active transport
+function netSend(o){if(conn)conn.send(JSON.stringify(o));}
+const wsConn={send:s=>{if(ws&&ws.readyState===1)ws.send(s);}};
+function openServerLobby(){p2pLeave(true);netKind='server';conn=wsConn;myCid=srvCid;lobby=srvLobby;state='lobby';}
 function netConnect(){if(!/^https?:$/.test(location.protocol))return;try{ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');}catch(e){ws=null;return;}
- ws.onopen=()=>{netAvailable=true;netSend({t:'hello',name:myName()});};
- ws.onmessage=ev=>{let m;try{m=JSON.parse(ev.data);}catch(e){return;}handleNet(m);};
- ws.onclose=()=>{const was=mode==='net';netAvailable=false;ws=null;lobby=null;if(was){mode='local';state='menu';previewMap();msg('Disconnected from the LAN server.','#ff7a6a',me);}else if(state==='lobby'){state='menu';}setTimeout(netConnect,3000);};}
+ ws.onopen=()=>{netAvailable=true;wsConn.send(JSON.stringify({t:'hello',name:myName()}));};
+ ws.onmessage=ev=>{let m;try{m=JSON.parse(ev.data);}catch(e){return;}if(m.t==='welcome')srvCid=m.cid;if(m.t==='lobby')srvLobby=m;if(netKind==='server')handleNet(m);};
+ ws.onclose=()=>{const srv=netKind==='server';const was=srv&&mode==='net';netAvailable=false;ws=null;srvLobby=null;if(srv){lobby=null;netKind=null;conn=null;}if(!srv){}else if(was){mode='local';state='menu';previewMap();msg('Disconnected from the LAN server.','#ff7a6a',me);}else if(state==='lobby'){state='menu';}setTimeout(netConnect,3000);};}
 function handleNet(m){
  if(m.t==='welcome'){myCid=m.cid;}
  else if(m.t==='lobby'){lobby=m;}
@@ -175,13 +178,14 @@ function drawMenu(){uiBtns=[];tip=null;const [x,y]=overlayPanel(600,560);
  Object.keys(MAPSIZES).forEach((s,i)=>bigBtn(x+250+i*88,y+350,84,MAPSIZES[s].label,()=>{if(mapSize!==s){mapSize=s;try{localStorage.setItem('kom_map',s);}catch(e){}previewMap();}},mapSize===s));
  text('Map size: Small 96², Medium 144², Large 192² tiles',x+382,y+400,'#998','11px Georgia, serif','center');
  bigBtn(x+90,y+420,205,'▶  Solo Campaign',()=>{newGame();},true);
- if(netAvailable)bigBtn(x+305,y+420,205,'⚔  LAN Lobby',()=>{state='lobby';},true);
+ if(netAvailable)bigBtn(x+305,y+420,205,'⚔  LAN Lobby',()=>{openServerLobby();},true);
  else{ctx.fillStyle='rgba(0,0,0,.3)';ctx.fillRect(x+305,y+420,205,38);text('LAN: run node server.js',x+407,y+444,'#887','13px Georgia, serif','center');}
  text('H: help   B: build menu   P/Esc: pause   M: mute   WASD/arrows/edges/right-drag: pan   Wheel: zoom',W/2,y+540,'#998','12px Georgia, serif','center');
- text(netAvailable?'Connected to LAN server — open the lobby to play with others.':'Multiplayer: start the bundled server and open its URL on each PC.',W/2,y+490,'#aa9','12px Georgia, serif','center');}
-function drawLobby(){uiBtns=[];tip=null;const [x,y]=overlayPanel(640,560);
- text('LAN Lobby',W/2,y+48,'#ffe7a8','bold 30px Georgia, serif','center');
- if(!lobby||!netAvailable){text('Connecting…',W/2,y+120,'#ddd','16px Georgia, serif','center');bigBtn(x+220,y+500,200,'Back',()=>{state='menu';});return;}
+ bigBtn(x+90,y+466,205,'⇄  Host (peer-to-peer)',()=>{p2pHost();},false);bigBtn(x+305,y+466,205,'⇄  Join (peer-to-peer)',()=>{p2pJoinStart();},false);
+ text(netAvailable?'Connected to LAN server — open the lobby, or host/join a browser peer-to-peer game.':'Multiplayer: Host/Join peer-to-peer in the browser (no server), or run node server.js.',W/2,y+516,'#aa9','12px Georgia, serif','center');}
+function drawLobby(){uiBtns=[];tip=null;const [x,y]=overlayPanel(640,560);const pp=netKind==='p2p';
+ text(pp?'Peer-to-peer Lobby':'LAN Lobby',W/2,y+48,'#ffe7a8','bold 30px Georgia, serif','center');
+ if(!lobby||(!pp&&!netAvailable)){text('Connecting…',W/2,y+120,'#ddd','16px Georgia, serif','center');bigBtn(x+220,y+500,200,'Back',()=>{p2pLeave(true);state='menu';});return;}
  const host=lobby.host===myCid;const meC=lobby.clients.find(c=>c.cid===myCid)||{};
  text(`You are "${meC.name||'?'}"${host?' (host)':''}`,x+30,y+86,'#ddd','14px Georgia, serif');
  smallBtn(x+430,y+70,180,24,'Change name',()=>{const n=(prompt('Your name:',meC.name||'')||'').trim().slice(0,16);if(n){try{localStorage.setItem('kom_name',n);}catch(e){}netSend({t:'name',name:n});}},{t:'Set your display name'});
@@ -196,14 +200,17 @@ function drawLobby(){uiBtns=[];tip=null;const [x,y]=overlayPanel(640,560);
   text('Map size:',x+30,y+420,'#ffe7a8','bold 13px Georgia, serif');Object.keys(MAPSIZES).forEach((s,i)=>smallBtn(x+150+i*90,y+404,84,24,MAPSIZES[s].label,()=>netSend({t:'cfg',diff:lobby.diff,fog:lobby.fog,size:s}),{t:'Map size',d:{small:'96×96 tiles (1×)',medium:'144×144 tiles (1.5×)',large:'192×192 tiles (2×)'}[s]},(lobby.size||'small')===s));
   const canStart=lobby.clients.some(c=>c.slot>=0);bigBtn(x+170,y+438,300,canStart?'▶  Start Game':'Take a slot to start',()=>{if(canStart)netSend({t:'start'});},canStart);}
  else text(`Waiting for the host to start…  (AI: ${DIFF[lobby.diff].label}, fog ${lobby.fog?'on':'off'}, map ${(MAPSIZES[lobby.size]||MAPSIZES.small).label})`,W/2,y+400,'#cdbb90','14px Georgia, serif','center');
- text('Others join by opening this same URL on their computer. Empty slots are played by the AI.',W/2,y+480,'#998','12px Georgia, serif','center');
- smallBtn(x+270,y+510,100,26,'Back',()=>{state='menu';},{t:'Return to main menu'});}
+ if(pp&&p2p&&p2p.role==='host'){text(`Hosted in this browser${p2p.code?` — room code ${p2p.code}`:''}. Empty slots are played by the AI; the AI takes over anyone who disconnects.`,W/2,y+472,'#998','12px Georgia, serif','center');
+  smallBtn(x+30,y+510,200,26,'➕ Invite player (code / QR)',()=>{p2pInvite();},{t:'Create an invite code for one more player'});}
+ else text(pp?'Connected peer-to-peer to the host. Empty slots are played by the AI.':'Others join by opening this same URL on their computer. Empty slots are played by the AI.',W/2,y+480,'#998','12px Georgia, serif','center');
+ smallBtn(x+270,y+510,100,26,'Back',()=>{if(pp)p2pLeave(true);state='menu';},{t:pp&&p2p&&p2p.role==='host'?'Close the room':'Return to main menu'});}
 function drawPause(){uiBtns=[];tip=null;const net=mode==='net';const host=net&&lobby&&lobby.host===myCid;const [x,y]=overlayPanel(360,300);
  text(net?'Game Menu':'Paused',W/2,y+44,'#ffe7a8','bold 28px Georgia, serif','center');if(net)text('(multiplayer keeps running)',W/2,y+66,'#aa9','12px Georgia, serif','center');
  bigBtn(x+60,y+80,240,'Resume',()=>{state='play';},true);bigBtn(x+60,y+128,240,'Help',()=>{state='play';showHelp=true;});
  if(!net){bigBtn(x+60,y+176,240,'Restart',()=>{newGame();});bigBtn(x+60,y+224,240,'Main Menu',()=>{state='menu';previewMap();});}
  else if(host)bigBtn(x+60,y+176,240,'End game → lobby (all)',()=>netSend({t:'tolobby'}));
  else bigBtn(x+60,y+176,240,'Surrender',()=>{if(confirm('Surrender your kingdom?'))netSend({t:'surrender'});});
+ if(net&&netKind==='p2p')bigBtn(x+60,y+224,240,host?'Close room (ends game)':'Leave game',()=>{p2pLeave(true);mode='local';state='menu';previewMap();});
  AU.panel(W/2-130,Math.min(H-134,y+310));}
 function drawEnd(){uiBtns=[];tip=null;const won=state==='won';const [x,y]=overlayPanel(500,330);
  text(won?'VICTORY':'DEFEAT',W/2,y+60,won?'#ffe070':'#ff7a6a','bold 44px Georgia, serif','center');
