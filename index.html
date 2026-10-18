@@ -70,7 +70,7 @@ const DIFF={easy:{mult:.75,tm:1.4,wm:.75,bonus:0,label:'Easy'},normal:{mult:1,tm
 // ===== state =====
 let tiles,resT,resA,treeV,gcls,bgrid,vis,visMap={},resEvents=[];
 let units=[],blds=[],projs=[],parts=[],decals=[],players=[],msgs=[],pings=[];
-let time=0,nextId=1,state='menu',difficulty='normal',fogOn=true,showHelp=false,pathBudget=10,pathExp=60000,me=0,gameOver=false;
+let time=0,nextId=1,state='menu',difficulty='normal',fogOn=true,showHelp=false,pathBudget=10,pathExp=60000,pathEmerg=4,me=0,gameOver=false;
 let sel=[],groups={},placing=null,wallStart=null,amoveMode=false,lastAlert=null,lastAlertT=-99;
 let cam={x:0,y:0,z:1};
 let mmDirty=true;
@@ -147,7 +147,7 @@ function exposed(x,y){for(let d=0;d<4;d++){const nx=x+DX[d],ny=y+DY[d];if(inb(nx
 function nearestRes(t,x,y,maxR,needExposed=true,forU=null){x=Math.floor(x);y=Math.floor(y);
  for(let r=0;r<=maxR;r++){let best=null,bd=1e9;
   for(let yy=y-r;yy<=y+r;yy++){if(yy<0||yy>=MAP)continue;const step=(yy===y-r||yy===y+r)?1:2*r||1;
-   for(let xx=x-r;xx<=x+r;xx+=step){if(xx<0||xx>=MAP)continue;const i=yy*MAP+xx;if(resT[i]!==t)continue;if(needExposed&&!exposed(xx,yy))continue;if(forU&&!claimOK(i,forU))continue;const d=dist(xx,yy,x,y);if(d<bd){bd=d;best=[xx,yy];}}}
+   for(let xx=x-r;xx<=x+r;xx+=step){if(xx<0||xx>=MAP)continue;const i=yy*MAP+xx;if(resT[i]!==t)continue;if(needExposed&&!exposed(xx,yy))continue;if(forU&&(!claimOK(i,forU)||(forU.avoid&&forU.avoid.has(i)&&time-forU.avoid.get(i)<45)))continue;const d=dist(xx,yy,x,y);if(d<bd){bd=d;best=[xx,yy];}}}
   if(best)return best;}
  return null;}
 
@@ -184,16 +184,16 @@ function smooth(sx,sy,pts,owner){if(pts.length<2)return pts;const out=[];let cx=
  while(i<pts.length){let j=Math.min(pts.length-1,i+14);while(j>i&&!lineClear(cx,cy,pts[j][0],pts[j][1],owner))j--;out.push(pts[j]);cx=pts[j][0];cy=pts[j][1];i=j+1;}
  return out;}
 function goTo(u,x,y){u.repathT=time;u.goal={x,y};
- if(lineClear(u.x,u.y,x,y,u.owner)){u.path=[[x,y]];u.pend=null;return;}
+ if(!(u.stuckN>=2)&&lineClear(u.x,u.y,x,y,u.owner)){u.path=[[x,y]];u.pend=null;return;}
  u.path=[];u.pend={x,y};}
 function computePath(u){const {x,y}=u.pend;u.pend=null;const tx=Math.floor(x),ty=Math.floor(y);
  const p=findPath(Math.floor(u.x),Math.floor(u.y),tx,ty,u.owner);if(!p){u.path=[];return;}
- const sp=smooth(u.x,u.y,p,u.owner);
+ const sp=u.stuckN>=2?p.slice():smooth(u.x,u.y,p,u.owner);
  if(passable(tx,ty,u.owner)){if(sp.length&&Math.floor(sp[sp.length-1][0])===tx&&Math.floor(sp[sp.length-1][1])===ty)sp[sp.length-1]=[x,y];else if(!sp.length)sp.push([x,y]);}
  u.path=sp;}
 const hasPath=u=>!!(u.pend||(u.path&&u.path.length));
 function moveAlong(u,dt){
- if(u.pend){if(pathBudget>0&&pathExp>0){pathBudget--;computePath(u);}return false;}
+ if(u.pend){if(pathBudget>0&&pathExp>0){pathBudget--;u.pw=0;computePath(u);}else if((u.pw=(u.pw||0)+1)>18&&pathEmerg>0){pathEmerg--;u.pw=0;computePath(u);}return false;}
  if(!u.path||!u.path.length)return true;
  const p=u.path[0];const dx=p[0]-u.x,dy=p[1]-u.y,d=Math.hypot(dx,dy);const step=UNITS[u.type].speed*dt;
  if(Math.abs(dx-dy)>0.01)u.dir=(dx-dy)>0?1:-1;
@@ -271,7 +271,7 @@ function updateUnit(u,dt){
  if(u.target&&u.target.inG)u.target=null;
  if(u.state==='garrison'){const b=u.garB;if(!garCap(b)||b.owner!==u.owner){u.garB=null;u.state='idle';resumeWork(u);return;}
   if(distTo(u,b)<=1.05){if(b.gar.length<garCap(b))enterGarrison(u,b);else{u.garB=null;u.state='idle';const alt=blds.find(o=>o!==b&&o.owner===u.owner&&garFree(o)>0&&distTo(u,o)<12);if(alt)sendGarrison(u,alt);else resumeWork(u);}return;}
-  if(!hasPath(u)){const tp=targetPoint(u,b);goTo(u,tp.x,tp.y);}if(moveAlong(u,dt)){u.path=null;if(distTo(u,b)>1.05){u.gfail=(u.gfail||0)+1;if(u.gfail>3){u.gfail=0;u.garB=null;u.state='idle';}}}return;}
+  if(!hasPath(u)){const tp=approachPoint(u,b,u.gfail||0);goTo(u,tp.x,tp.y);}if(moveAlong(u,dt)){u.path=null;if(distTo(u,b)>1.05){u.gfail=(u.gfail||0)+1;if(u.gfail>3){u.gfail=0;u.garB=null;u.state='idle';}}}return;}
  {const ti=Math.floor(u.y)*MAP+Math.floor(u.x);if(ti!==u.lt){u.lt=ti;const gb=bgrid[ti];if(gb&&gb.type==='gate'&&time-(gb.gT||-9)>1.2){gb.gT=time;sfx('gate',gb.x,gb.y,gb.owner);}}}
  if(u.state==='move'){
   if(u.amove){u.scanT-=dt;if(u.scanT<=0){u.scanT=.35;const e=findEnemy(u,D.sight);if(e){u.target=e;u.state='attack';return;}}}
@@ -297,17 +297,22 @@ function updateUnit(u,dt){
   u.scanT-=dt;if(u.scanT<=0){u.scanT=.5+Math.random()*.2;if(u.type!=='peasant'){const e=findEnemy(u,D.sight);if(e){u.guard=u.guard||{x:u.x,y:u.y};u.target=e;u.state='attack';u.leash=true;}}}
  }else peasantUpdate(u,dt);
  // stuck detection
- if(u.moving){u.stuckT+=dt;if(u.stuckT>1.5){if(dist(u.x,u.y,u.lx,u.ly)<0.3&&u.goal){u.path=[];u.pend={x:u.goal.x,y:u.goal.y};}u.stuckT=0;u.lx=u.x;u.ly=u.y;}}
+ if(u.moving){u.stuckT+=dt;if(u.stuckT>1.5){if(dist(u.x,u.y,u.lx,u.ly)<0.3&&u.goal){u.stuckN=(u.stuckN||0)+1;u.path=[];u.pend={x:u.goal.x,y:u.goal.y};}else u.stuckN=0;u.stuckT=0;u.lx=u.x;u.ly=u.y;}}
+ if(u.type==='peasant')peasantWatchdog(u);
 }
-function nearestDrop(owner,rt,x,y){let best=null,bd=1e9;for(const b of blds){if(b.dead||b.owner!==owner||!b.built)continue;const D=BLD[b.type];if(!D.drop||!D.drop.includes(rt))continue;const d=dist(x,y,b.x,b.y);if(d<bd){bd=d;best=b;}}return best;}
-function startReturn(u){const b=nearestDrop(u.owner,u.carryT,u.x,u.y);if(!b){u.state='idle';return;}u.state='return';u.dropB=b;u.rfail=0;const tp=targetPoint(u,b);goTo(u,tp.x,tp.y);}
+function nearestDrop(owner,rt,x,y,u){let best=null,bd=1e9;for(const b of blds){if(b.dead||b.owner!==owner||!b.built)continue;if(u&&u.badDrop===b.id&&time-u.badDropT<40)continue;const D=BLD[b.type];if(!D.drop||!D.drop.includes(rt))continue;const d=dist(x,y,b.x,b.y);if(d<bd){bd=d;best=b;}}return best;}
+function startReturn(u){const b=nearestDrop(u.owner,u.carryT,u.x,u.y,u);if(!b){u.state='idle';return;}u.state='return';u.dropB=b;u.rfail=0;const tp=approachPoint(u,b,0);goTo(u,tp.x,tp.y);}
+// a free tile around a building (8-neighbourhood ring) nearest to the unit; 'skip' cycles to the next candidate after failures
+function approachPoint(u,b,skip){if(b.kind!=='bld')return targetPoint(u,b);
+ if(BLD[b.type].walk){const c=[];for(let y=b.ty;y<b.ty+b.h;y++)for(let x=b.tx;x<b.tx+b.w;x++)c.push([x+.5,y+.5,dist(u.x,u.y,x+.5,y+.5)]);c.sort((a,o)=>a[2]-o[2]);const p=c[(skip||0)%c.length];return{x:p[0],y:p[1]};}const c=[];for(let y=b.ty-1;y<=b.ty+b.h;y++)for(let x=b.tx-1;x<=b.tx+b.w;x++){if(x>=b.tx&&x<b.tx+b.w&&y>=b.ty&&y<b.ty+b.h)continue;if(!passable(x,y,u.owner))continue;c.push([x+.5,y+.5,dist(u.x,u.y,x+.5,y+.5)]);}
+ if(!c.length)return targetPoint(u,b);c.sort((a,o)=>a[2]-o[2]);const p=c[(skip||0)%c.length];return{x:p[0],y:p[1]};}
 function assignGather(u,tx,ty){const t=resT[ty*MAP+tx];if(!t)return false;u.bld=null;
  if(!exposed(tx,ty)||!claimOK(ty*MAP+tx,u)){const n=nearestRes(t,tx,ty,10,true,u);if(!n)return false;tx=n[0];ty=n[1];}
  releaseClaim(u);if(claim)claim[ty*MAP+tx]=u.id;
  u.job={rt:RTN[t],tx,ty};u.state='gather';u.path=null;u.pend=null;u.target=null;u.amove=null;u.gfail=0;u.approach=null;return true;}
 function farmFree(b){b.workers=b.workers.filter(w=>!w.dead&&w.job&&w.job.farm===b);return b.workers.length<2;}
 function assignFarm(u,b){if(!b.built||!farmFree(b))return false;u.bld=null;releaseClaim(u);const used=b.workers.map(w=>w.job.slot);const slot=used.includes(0)?1:0;
- u.job={farm:b,slot};b.workers.push(u);u.state='farm';u.path=null;u.pend=null;u.target=null;u.amove=null;return true;}
+ u.job={farm:b,slot,t:time};b.workers.push(u);u.state='farm';u.path=null;u.pend=null;u.target=null;u.amove=null;return true;}
 function peasantUpdate(u,dt){
  if(u.state==='build'){buildUpdate(u,dt);return;}
  const P=players[u.owner];const mult=P.isAI?DIFF[difficulty].mult:1;
@@ -320,14 +325,14 @@ function peasantUpdate(u,dt){
   const cx=j.tx+.5,cy=j.ty+.5;const d=Math.max(Math.abs(u.x-cx),Math.abs(u.y-cy));
   if(d<=1.3&&!u.pend){u.path=null;u.working=true;u.gfail=0;const sdx=(cx-cy)-(u.x-u.y);if(Math.abs(sdx)>.05)u.dir=sdx>0?1:-1;
    u.gt+=dt*GRATE[j.rt]*mult;while(u.gt>=1){u.gt-=1;resA[i]-=1;u.carry++;u.carryT=j.rt;if(u.carry%3===0)sfx(j.rt==='wood'?'chop':'mine',cx,cy,u.owner,RT[j.rt]);if(resA[i]<=0){resT[i]=0;if(claim)claim[i]=0;resEvents.push(i);mmDirty=true;if(j.rt==='wood')parts.push({x:cx,y:cy,z:10,vx:0,vy:0,vz:20,life:.6,max:.6,c:'#3d6b2a',s:5});break;}if(u.carry>=CAP)break;}}
-  else if(!hasPath(u)){u.gfail++;if(u.gfail>4){if(claim&&claim[i]===u.id)claim[i]=0;const n=nearestRes(RT[j.rt],u.x,u.y,6,true,u);if(n&&u.gfail<8){j.tx=n[0];j.ty=n[1];claim&&(claim[j.ty*MAP+j.tx]=u.id);}else{u.job=null;u.state='idle';return;}}
+  else if(!hasPath(u)){u.gfail++;if(u.gfail>4){if(claim&&claim[i]===u.id)claim[i]=0;avoidNode(u,i);const n=nearestRes(RT[j.rt],u.x,u.y,6,true,u);if(n&&u.gfail<8){j.tx=n[0];j.ty=n[1];claim&&(claim[j.ty*MAP+j.tx]=u.id);}else{u.job=null;u.state='idle';return;}}
    const a=nearestFree(j.tx,j.ty,u.x,u.y,u.owner,1);if(!a){u.gfail+=2;return;}
    goTo(u,a[0]+.5,a[1]+.5);}
   else moveAlong(u,dt);
  }else if(u.state==='return'){const b=u.dropB;
   if(!b||b.dead){startReturn(u);return;}
   if(distTo(u,b)<=0.95){if(u.carry>0)sfx('drop',u.x,u.y,u.owner,RT[u.carryT]||0);P.res[u.carryT]+=u.carry;u.carry=0;if(u.job&&u.job.rt){u.state='gather';u.path=null;u.pend=null;}else u.state='idle';return;}
-  if(!hasPath(u)){u.rfail++;if(u.rfail>6){u.state='idle';return;}const tp=targetPoint(u,b);goTo(u,tp.x,tp.y);}else moveAlong(u,dt);
+  if(!hasPath(u)){u.rfail++;if(u.rfail>6){u.badDrop=b.id;u.badDropT=time;const nb=nearestDrop(u.owner,u.carryT,u.x,u.y,u);if(nb){startReturn(u);}else u.state='idle';return;}const tp=approachPoint(u,b,u.rfail-1);goTo(u,tp.x,tp.y);}else moveAlong(u,dt);
  }else if(u.state==='farm'){const j=u.job;const b=j&&j.farm;
   if(!b||b.dead){u.job=null;const f=findFarm(u.owner,u.x,u.y);if(f)assignFarm(u,f);else u.state='idle';return;}
   const fx=b.tx+(j.slot?1.45:0.55)+Math.sin(u.anim*.3+j.slot)*0.25,fy=b.ty+(j.slot?0.6:1.4);
@@ -335,14 +340,20 @@ function peasantUpdate(u,dt){
   if(d<0.5&&b.built){u.working=true;P.res.food+=FARM_RATE*dt*mult;if(Math.abs(fx-u.x)>.02)u.x+=Math.sign(fx-u.x)*Math.min(Math.abs(fx-u.x),dt*.3);}
   else if(d>=0.5){if(!hasPath(u)||(u.goal&&dist(u.goal.x,u.goal.y,fx,fy)>1))goTo(u,fx,fy);moveAlong(u,dt);}
  }}
-function findFarm(owner,x,y){let best=null,bd=1e9;for(const b of blds){if(b.dead||b.owner!==owner||b.type!=='farm'||!b.built||!farmFree(b))continue;const d=dist(x,y,b.x,b.y);if(d<bd){bd=d;best=b;}}return best;}
+function findFarm(owner,x,y){let best=null,bd=1e9;for(const b of blds){if(b.dead||b.owner!==owner||b.type!=='farm'||!b.built||!farmFree(b))continue;if(time-(b.doneT||-99)<1.5&&buildersOf(b)>0)continue;// a just-finished farm is reserved for its builders
+const d=dist(x,y,b.x,b.y);if(d<bd){bd=d;best=b;}}return best;}
 function separation(){
  for(const u of units){if(u.dead||u.inG)continue;
   queryUnits(u.x,u.y,0.8,v=>{if(v.id<=u.id||v.dead)return;const dx=v.x-u.x,dy=v.y-u.y,d2=dx*dx+dy*dy;
    const mn=(u.type==='knight'||u.type==='catapult'||v.type==='knight'||v.type==='catapult')?0.6:0.42;
    if(d2>=mn*mn)return;if(d2<1e-6){tryMove(u,rr(-.05,.05),rr(-.05,.05));return;}
    const d=Math.sqrt(d2),push=(mn-d)*0.35,nx=dx/d*push,ny=dy/d*push;
-   const wu=u.working?0.2:1,wv=v.working?0.2:1;tryMove(u,-nx*wu,-ny*wu);tryMove(v,nx*wv,ny*wv);});}}
+   const wu=u.working?0.2:1,wv=v.working?0.2:1;let sx=0,sy=0;
+   // two units walking into each other (head-on in a corridor) would push each other straight back forever: add a sideways slide
+   // (also when walking into a standing unit, e.g. soldiers parked in a gap: the walker slides around it, the idle one yields more)
+   if(u.moving||v.moving){const s=(u.id&1)?1:-1;sx=-ny*s*1.2;sy=nx*s*1.2;}
+   const yu=(!u.moving&&v.moving&&!u.working)?1.6:1,yv=(!v.moving&&u.moving&&!v.working)?1.6:1;
+   tryMove(u,-nx*wu*yu-(u.moving?sx:0),-ny*wu*yu-(u.moving?sy:0));tryMove(v,nx*wv*yv+(v.moving?sx:0),ny*wv*yv+(v.moving?sy:0));});}}
 function tryMove(u,dx,dy){const cur=passable(Math.floor(u.x),Math.floor(u.y),u.owner);
  const nx=u.x+dx;if(!cur||passable(Math.floor(nx),Math.floor(u.y),u.owner))u.x=clamp(nx,0.05,MAP-0.05);
  const ny=u.y+dy;if(!cur||passable(Math.floor(u.x),Math.floor(ny),u.owner))u.y=clamp(ny,0.05,MAP-0.05);}
@@ -354,10 +365,10 @@ function refund(p,c){for(const r in c)p.res[r]+=c[r];}
 function enqueue(b,ut){const p=players[b.owner];if(b.queue.length>=5||!afford(p,UNITS[ut].cost))return false;pay(p,UNITS[ut].cost);b.queue.push(ut);sfx('queued',b.x,b.y,b.owner);return true;}
 function updateBld(b,dt){const D=BLD[b.type];const P=players[b.owner];
  const nB=b.bN||0;b.bN=0;b.bc=nB;
- if(!b.built){if(nB>0){const e=buildEff(nB);b.prog+=dt*e/D.time;b.hp=Math.min(b.maxhp,b.hp+D.hp*.9*dt*e/D.time);}if(b.prog>=1){b.built=true;b.prog=1;mmDirty=true;sfx('built',b.x,b.y,b.owner,D.wall?1:0);if(P.isHuman&&!D.wall)msg(`${D.name} completed.`,'#bfe6a0',b.owner);}return;}
+ if(!b.built){if(nB>0){const e=buildEff(nB);b.prog+=dt*e/D.time;b.hp=Math.min(b.maxhp,b.hp+D.hp*.9*dt*e/D.time);}if(b.prog>=1){b.built=true;b.prog=1;b.doneT=time;mmDirty=true;sfx('built',b.x,b.y,b.owner,D.wall?1:0);if(P.isHuman&&!D.wall)msg(`${D.name} completed.`,'#bfe6a0',b.owner);}return;}
  if(nB>0&&b.hp<b.maxhp){const gain=Math.min(b.maxhp-b.hp,b.maxhp*dt*buildEff(nB)/(Math.max(D.time,8)*2.5));const rc=repairCost(b,gain);
   if(afford(P,rc)){pay(P,rc);b.hp+=gain;b.repT=time;if(Math.random()<dt*6)parts.push({x:b.x+rr(-b.w/2,b.w/2),y:b.y+rr(-b.h/2,b.h/2),z:rr(8,30),vx:rr(-.3,.3),vy:rr(-.3,.3),vz:rr(15,30),life:.6,max:.6,c:'#9cf27a',s:2});}
-  else if(time-(b.rfT||-99)>8){b.rfT=time;if(P.isHuman){msg(`Not enough wood/stone to repair the ${D.name}.`,'#ff9a8a',b.owner);sfx('err',b.x,b.y,b.owner);}}}
+  else{b.noFundsT=time;}if(!afford(P,rc)&&time-(b.rfT||-99)>8){b.rfT=time;if(P.isHuman){msg(`Not enough wood/stone to repair the ${D.name}.`,'#ff9a8a',b.owner);sfx('err',b.x,b.y,b.owner);}}}
  if(D.income)P.res.gold+=D.income*dt*(P.isAI?DIFF[difficulty].mult:1);
  if(D.shoot){b.cd-=dt;if(b.cd<=0){const S=D.shoot;const cands=[];queryUnits(b.x,b.y,S.range+1,v=>{if(!v.dead&&isEnemy(b.owner,v.owner)){const d=distTo(v,b);if(d<=S.range)cands.push([d,v]);}});
   if(cands.length){cands.sort((a,c)=>a[0]-c[0]);sfx('bow',b.x,b.y,b.owner);const na=b.gar&&b.gar.length?garArchers(b):0;for(let k=0;k<S.n+na;k++){const v=cands[k%cands.length][1];projs.push({k:'arrow',sx:b.x,sy:b.y,sz:b.type==='tower'?52:40,t:v,tx:v.x,ty:v.y,life:0,dur:Math.max(.15,dist(b.x,b.y,v.x,v.y)/13),dmg:k<S.n?S.atk:UNITS.archer.atk,owner:b.owner,atype:k<S.n?'tower':'archer',att:null});}b.cd=S.cd;}else b.cd=.3;}}
@@ -371,15 +382,11 @@ function spawnFrom(b,ut){const rp=b.rally||{x:b.x+1,y:b.y+3};const n=nearestFree
   else{u.state='move';goTo(u,b.rally.x+rr(-.6,.6),b.rally.y+rr(-.6,.6));}}
  else if(ut==='peasant'&&players[b.owner].isHuman){const f=findFarm(b.owner,u.x,u.y);if(f)assignFarm(u,f);}
  u.guard={x:u.x,y:u.y};return u;}
-function territoryOK(type,tx,ty,owner){const D=BLD[type];const cx=tx+D.w/2,cy=ty+D.h/2;
- let ok=false;for(const b of blds){if(b.dead)continue;if(b.owner!==owner){if(isEnemy(owner,b.owner)&&!BLD[b.type].wall&&dist(cx,cy,b.x,b.y)<7+b.w/2)return false;continue;}if(!b.built||BLD[b.type].wall||b.type==='tower')continue;const r=territoryR(b)+(D.wall?3:0);if(dist(cx,cy,b.x,b.y)<=r)ok=true;}return ok;}
-function territoryR(b){return b.type==='keep'||b.type==='fortress'?13:8;}
 function canPlace(type,tx,ty,owner,ai){const D=BLD[type];
  for(let y=ty;y<ty+D.h;y++)for(let x=tx;x<tx+D.w;x++){if(!inb(x,y))return 'Out of bounds';const i=y*MAP+x;if(tiles[i])return 'Blocked by water';if(resT[i])return 'Blocked by resources';if(bgrid[i])return 'Blocked by building';if(fogOn&&visMap[owner]&&visMap[owner][i]===0)return 'Unexplored';
   if(ai&&ai.ringSet&&!D.wall&&ai.ringSet.has(i))return 'reserved';}
  if(ai&&!D.wall){for(let y=ty-1;y<=ty+D.h;y++)for(let x=tx-1;x<=tx+D.w;x++){if(!inb(x,y))return 'edge';const b=bgrid[y*MAP+x];if(b&&!BLD[b.type].wall)return 'crowded';}}
  for(const u of units){if(u.dead||u.owner===owner)continue;if(u.x>=tx-.3&&u.x<=tx+D.w+.3&&u.y>=ty-.3&&u.y<=ty+D.h+.3)return 'Enemy units in the way';}
- if(!territoryOK(type,tx,ty,owner))return 'Outside your territory (build near your completed buildings, not near enemies)';
  return null;}
 function placeBuilding(type,tx,ty,owner){const p=players[owner];const c=BLD[type].cost;if(!afford(p,c))return null;if(canPlace(type,tx,ty,owner,p.isAI?p.ai:null))return null;pay(p,c);sfx('place',tx+BLD[type].w/2,ty+BLD[type].h/2,owner,BLD[type].wall?1:0);return spawnBld(type,tx,ty,owner,false);}
 
@@ -437,17 +444,21 @@ const buildEff=n=>n>0?Math.pow(n,0.65):0; // diminishing returns: 1→1, 2→1.5
 function buildersOf(b){let n=0;for(const u of units)if(!u.dead&&u.bld===b&&u.state==='build')n++;return n;}
 function needsWork(b){return b&&!b.dead&&(!b.built||b.hp<b.maxhp-.5);}
 function assignBuild(u,b){if(u.type!=='peasant'||u.inG||!needsWork(b)||b.owner!==u.owner)return false;releaseClaim(u);if(u.job&&u.job.farm){u.prevFarm=u.job.farm;u.job=null;}
- u.state='build';u.bld=b;u.bfail=0;u.target=null;u.amove=null;u.garB=null;const tp=targetPoint(u,b);goTo(u,tp.x,tp.y);return true;}
+ u.state='build';u.bld=b;u.bfail=0;u.target=null;u.amove=null;u.garB=null;u.wdT=time;const tp=approachPoint(u,b,0);goTo(u,tp.x,tp.y);return true;}
 function finishBuild(u){const ob=u.bld;u.bld=null;
+ // builders of a Farm that just got completed start farming it right away (2 slots); the rest move on
+ if(ob&&!ob.dead&&ob.built&&ob.owner===u.owner&&time-(ob.doneT||-99)<3&&autoStart(u,ob))return;
  // chain to the next nearby own construction site (wall lines, several houses...)
- let best=null,bd=1e9;for(const b of blds){if(b===ob||b.dead||b.built||b.owner!==u.owner)continue;const d=distTo(u,b);if(d>9||d>=bd)continue;if(buildersOf(b)>=(BLD[b.type].wall?1:3))continue;bd=d;best=b;}
+ let best=null,bd=1e9;for(const b of blds){if(b===ob||b.dead||b.built||b.owner!==u.owner||(u.badBld===b&&time-u.badBldT<30))continue;const d=distTo(u,b);if(d>9||d>=bd)continue;if(buildersOf(b)>=(BLD[b.type].wall?1:3))continue;bd=d;best=b;}
  if(best&&assignBuild(u,best))return;
  u.state='idle';u.path=null;u.pend=null;if(!resumeWork(u))u.guard={x:u.x,y:u.y};}
 function buildUpdate(u,dt){const b=u.bld;if(!needsWork(b)||b.owner!==u.owner){finishBuild(u);return;}
  const d=distTo(u,b);if(d<=1.0){u.path=null;u.pend=null;u.working=true;b.bN=(b.bN||0)+1;const sdx=(b.x-b.y)-(u.x-u.y);if(Math.abs(sdx)>.05)u.dir=sdx>0?1:-1;
+  // AI repair crews that can't pay for the repair would stand there forever: release them (the site is avoided for 30 s)
+  if(b.built&&players[u.owner].isAI&&time-(b.noFundsT||-99)<0.5&&time-(b.repT||-99)>3){u.badBld=b;u.badBldT=time;u.working=false;finishBuild(u);return;}
   if(time-(u.hT||-9)>.85){u.hT=time;u.swingT=time;if(Math.random()<.5)sfx('hammer',b.x,b.y,u.owner,b.built?1:0);}return;}
- if(!hasPath(u)||time-u.repathT>3){const tp=targetPoint(u,b);goTo(u,tp.x,tp.y);}
- if(moveAlong(u,dt)){u.path=null;if(distTo(u,b)>1.0){u.bfail++;if(u.bfail>4)finishBuild(u);}}}
+ if(!hasPath(u)||time-u.repathT>3){const tp=approachPoint(u,b,u.bfail);goTo(u,tp.x,tp.y);}
+ if(moveAlong(u,dt)){u.path=null;if(distTo(u,b)>1.0){u.bfail++;if(u.bfail>4){if(!b.built)b.unreach=(b.unreach||0)+1;u.badBld=b;u.badBldT=time;finishBuild(u);}}}}
 // send builders: the given peasants (round-robin over the sites), or the nearest idle peasant
 function sendBuilders(pid,sites,peas){if(!sites.length)return 0;let n=0;
  if(peas&&peas.length){peas.forEach((u,i)=>{if(assignBuild(u,sites[i%sites.length]))n++;});return n;}
@@ -461,6 +472,27 @@ function repairAuto(pid,b){if(!b||b.dead||b.owner!==pid||!needsWork(b))return 0;
  const c=units.filter(u=>!u.dead&&!u.inG&&u.owner===pid&&u.type==='peasant'&&u.state!=='build'&&u.state!=='garrison');
  c.sort((a,o)=>(a.state==='idle'?0:30)+dist(a.x,a.y,b.x,b.y)-((o.state==='idle'?0:30)+dist(o.x,o.y,b.x,b.y)));let n=0;
  for(const u of c){if(n>=want)break;if(u.state!=='idle'&&dist(u.x,u.y,b.x,b.y)>25)continue;if(assignBuild(u,b))n++;}return n;}
+
+// builders of a just-completed Farm start farming it (2 slots); of a Lumber Camp / Quarry / Gold Mine start gathering the
+// matching resource nearest to it (claim slots respected). Market/others: back to previous work.
+const AUTO_RES={lumber:'wood',quarry:'stone',mine:'gold'};
+function autoStart(u,b){if(b.type==='farm'){if(assignFarm(u,b)){u.prevFarm=null;return true;}return false;}
+ const rt=AUTO_RES[b.type];if(!rt)return false;const n=nearestRes(RT[rt],b.x,b.y,14,true,u);if(!n)return false;
+ const pj=u.job;if(assignGather(u,n[0],n[1])){u.prevFarm=null;return true;}u.job=pj;return false;}
+function avoidNode(u,i){(u.avoid||(u.avoid=new Map())).set(i,time);if(u.avoid.size>12){const k=u.avoid.keys().next().value;u.avoid.delete(k);}}
+// watchdog: a working peasant (gather/return/farm/build/garrison) that makes no progress for 6 s
+// (no movement, no carry change, not working) gets unstuck: new node / drop site / farm, or goes idle for re-assignment.
+const WD_STATES={gather:1,return:1,farm:1,build:1,garrison:1};
+function peasantWatchdog(u){if(!WD_STATES[u.state]){u.wdT=time;u.wdS=u.state;return;}
+ if(u.wdS!==u.state||u.working||u.wdC!==u.carry||u.wdX==null||Math.abs(u.x-u.wdX)+Math.abs(u.y-u.wdY)>.4){u.wdT=time;u.wdS=u.state;u.wdC=u.carry;u.wdX=u.x;u.wdY=u.y;return;}
+ if(time-u.wdT<6)return;u.wdT=time;u.wdX=null;u.unstuck=(u.unstuck||0)+1;unstickPeasant(u);}
+function unstickPeasant(u){u.path=null;u.pend=null;u.stuckN=2;const j=u.job;
+ if(u.state==='gather'&&j&&j.rt){const i=j.ty*MAP+j.tx;if(claim&&claim[i]===u.id)claim[i]=0;avoidNode(u,i);const n=nearestRes(RT[j.rt],u.x,u.y,14,true,u);
+  if(n){j.tx=n[0];j.ty=n[1];if(claim)claim[n[1]*MAP+n[0]]=u.id;}else{u.job=null;u.state='idle';}return;}
+ if(u.state==='return'){if(u.dropB){u.badDrop=u.dropB.id;u.badDropT=time;}const nb=nearestDrop(u.owner,u.carryT,u.x,u.y,u);if(nb)startReturn(u);else{u.state='idle';}return;}
+ if(u.state==='farm'){const f=j&&j.farm;u.job=null;const nf=blds.find(b=>!b.dead&&b!==f&&b.owner===u.owner&&b.type==='farm'&&b.built&&farmFree(b)&&dist(b.x,b.y,u.x,u.y)<20);if(nf&&assignFarm(u,nf))return;u.state='idle';return;}
+ if(u.state==='build'){if(u.bld&&!u.bld.built&&distTo(u,u.bld)>1.0)u.bld.unreach=(u.bld.unreach||0)+1;u.badBld=u.bld;u.badBldT=time;u.bld=null;u.state='idle';resumeWork(u);return;}
+ if(u.state==='garrison'){u.garB=null;u.state='idle';resumeWork(u);return;}}
 // ===== AI =====
 function initAI(p){const P=PERS[p.pers],Df=DIFF[difficulty];
  p.ai={tick:Math.random(),nextWave:P.firstAttack*Df.tm,waveSize:Math.max(3,Math.round(P.wave*Df.wm)),ring:null,ringSet:null,ringIdx:0,saveFor:null,lastWarn:-99};
@@ -470,13 +502,15 @@ function initAI(p){const P=PERS[p.pers],Df=DIFF[difficulty];
   for(let y=cy-R+1;y<cy+R;y++){add(cx-R,y,y===cy);add(cx+R,y,y===cy);}
   ring.sort((a,b)=>(b.g?1:0)-(a.g?1:0));p.ai.ring=ring;p.ai.ringSet=set;}}
 function affordRes(p,c,reserve){for(const r of RES){const need=(c[r]||0)+(reserve?(reserve[r]||0)*.8:0);if(p.res[r]<need)return false;}return true;}
+// placement is no longer limited by territory: the AI keeps its own buildings away from enemy bases
+function aiSafe(p,x,y){for(const b of blds)if(!b.dead&&isEnemy(p.id,b.owner)&&!BLD[b.type].wall&&dist(x,y,b.x,b.y)<14)return false;return true;}
 function aiFindSpot(p,type){const D=BLD[type];const k=p.keep;let cx=k.x,cy=k.y,r0=3,r1=15;
- if(D.drop&&type!=='fortress'){const n=nearestRes(RT[D.drop[0]],k.x,k.y,24,false);if(n){cx=n[0]+.5;cy=n[1]+.5;r0=1;r1=7;}}
+ if(D.drop&&type!=='fortress'){const n=nearestRes(RT[D.drop[0]],k.x,k.y,20,false);if(n){cx=n[0]+.5;cy=n[1]+.5;r0=1;r1=7;}}
  else if(type==='tower'){const a=Math.random()*Math.PI*2;const rad=p.ai.ring?8:rr(5,9);cx=k.x+Math.cos(a)*rad;cy=k.y+Math.sin(a)*rad;r0=0;r1=5;}
  else if(type==='farm'){r0=2;r1=12;}
  for(let r=r0;r<=r1;r++){const cands=[];for(let y=-r;y<=r;y++)for(let x=-r;x<=r;x++){if(Math.max(Math.abs(x),Math.abs(y))!==r)continue;cands.push([Math.round(cx+x-D.w/2),Math.round(cy+y-D.h/2)]);}
-  cands.sort(()=>Math.random()-.5);for(const c of cands)if(!canPlace(type,c[0],c[1],p.id,p.ai))return c;}
- if(D.drop&&type!=='fortress'){for(let r=3;r<=14;r++){for(let y=-r;y<=r;y++)for(let x=-r;x<=r;x++){if(Math.max(Math.abs(x),Math.abs(y))!==r)continue;const tx=Math.round(k.x+x-1),ty=Math.round(k.y+y-1);if(!canPlace(type,tx,ty,p.id,p.ai))return [tx,ty];}}}
+  cands.sort(()=>Math.random()-.5);for(const c of cands)if(aiSafe(p,c[0]+D.w/2,c[1]+D.h/2)&&!canPlace(type,c[0],c[1],p.id,p.ai))return c;}
+ if(D.drop&&type!=='fortress'){for(let r=3;r<=14;r++){for(let y=-r;y<=r;y++)for(let x=-r;x<=r;x++){if(Math.max(Math.abs(x),Math.abs(y))!==r)continue;const tx=Math.round(k.x+x-1),ty=Math.round(k.y+y-1);if(aiSafe(p,tx+D.w/2,ty+D.h/2)&&!canPlace(type,tx,ty,p.id,p.ai))return [tx,ty];}}}
  return null;}
 function attackMove(u,x,y){u.state='move';u.target=null;u.amove={x,y};u.leash=false;u.guard=null;goTo(u,x+rr(-1.5,1.5),y+rr(-1.5,1.5));u.amove={x:u.goal.x,y:u.goal.y};}
 function nearestBldOf(pid,x,y){let best=null,bd=1e9;for(const b of blds){if(b.dead||b.owner!==pid)continue;const d=dist(x,y,b.x,b.y)+(BLD[b.type].wall?6:0);if(d<bd){bd=d;best=b;}}return best;}
@@ -523,11 +557,13 @@ function aiThink(p){
   else{A.saveFor=BLD[ty].cost;break;}}
  if(A.ring&&t>150&&p.res.stone>60&&myB.filter(b=>!b.built&&BLD[b.type].wall).length<6){let placed=0;for(let tries=0;tries<A.ring.length&&placed<4;tries++){const c=A.ring[A.ringIdx%A.ring.length];A.ringIdx++;const i=c.y*MAP+c.x;if(bgrid[i]||tiles[i]||resT[i])continue;const ty=c.g?'gate':'wall';if(!afford(p,BLD[ty].cost))break;if(placeBuilding(ty,c.x,c.y,p.id))placed++;}}
  // --- builders: every construction site / damaged building gets peasants (walls 1, others up to 2-3)
- {const sites=myB.filter(b=>!b.built||(b.hp<b.maxhp*.7&&t-b.lastHit>6&&!BLD[b.type].wall));if(sites.length){const busy=peas.filter(u=>u.state==='build').length;let cap=Math.max(2,Math.ceil(peas.length*.2))-busy;let wallB=peas.filter(u=>u.state==='build'&&u.bld&&BLD[u.bld.type].wall).length;
-  const free=peas.filter(u=>u.state!=='build'&&(u.state==='idle'||u.carry===0));sites.sort((a,b)=>(BLD[a.type].wall?1:0)-(BLD[b.type].wall?1:0)||(b.type==='house'?1:0)-(a.type==='house'?1:0));
+ {// sites builders repeatedly failed to reach (no passable approach tile) are cancelled and refunded
+  for(const b of myB)if(!b.built&&!b.dead&&(b.unreach||0)>=3&&b.prog<0.05){refund(p,BLD[b.type].cost);b.cancelled=true;killEnt(b,-1);}
+  const sites=myB.filter(b=>!b.dead&&(!b.built||(b.hp<b.maxhp*.7&&t-b.lastHit>6&&!BLD[b.type].wall&&t-(b.noFundsT||-99)>15)));if(sites.length){const busy=peas.filter(u=>u.state==='build').length;let cap=Math.max(2,Math.ceil(peas.length*.2))-busy;let wallB=peas.filter(u=>u.state==='build'&&u.bld&&BLD[u.bld.type].wall).length;
+  const free=peas.filter(u=>u.state!=='build'&&(u.state==='idle'||u.carry===0)&&!(u.state==='farm'&&u.job&&time-(u.job.t||0)<20));// fresh farmers (e.g. a farm's own builders) stay on their farmsites.sort((a,b)=>(BLD[a.type].wall?1:0)-(BLD[b.type].wall?1:0)||(b.type==='house'?1:0)-(a.type==='house'?1:0));
   for(const s of sites){if(cap<=0||!free.length)break;const want=BLD[s.type].wall?1:s.built?2:(BLD[s.type].time>30?3:2);let have=buildersOf(s);
    if(BLD[s.type].wall&&wallB>=2)continue;
-   while(have<want&&cap>0&&free.length){let bi=0,bs=1e9;free.forEach((u,i)=>{const sc=dist(u.x,u.y,s.x,s.y)-(u.state==='idle'?15:0);if(sc<bs){bs=sc;bi=i;}});const u=free.splice(bi,1)[0];if(assignBuild(u,s)){have++;cap--;if(BLD[s.type].wall)wallB++;}}}}}
+   while(have<want&&cap>0&&free.length){let bi=0,bs=1e9;free.forEach((u,i)=>{const sc=dist(u.x,u.y,s.x,s.y)-(u.state==='idle'?15:0)+(u.badBld===s&&t-u.badBldT<30?1e6:0);if(sc<bs){bs=sc;bi=i;}});if(bs>=5e5)break;const u=free.splice(bi,1)[0];if(assignBuild(u,s)){have++;cap--;if(BLD[s.type].wall)wallB++;}}}}}
  // --- military
  const maxArmy=Math.round(P.maxArmy*(0.8+0.2*Df.mult));
  if(army.length<maxArmy){const tc={};for(const u of army)tc[u.type]=(tc[u.type]||0)+1;for(const b of myB)for(const q of b.queue)tc[q]=(tc[q]||0)+1;
@@ -624,7 +660,7 @@ function setupGame(gseed,slots,diff,fog,size){
  updateVis();mmDirty=true;}
 function makeAI(pid){const p=players[pid];if(!p||p.surrendered||p.isAI)return;p.isAI=true;p.isHuman=false;initAI(p);msg(`${p.pname||p.short} left — ${p.name} is now ruled by the AI.`,'#cdbb90');checkEnd();}
 function sim(dt){
- time+=dt;if(gameOver&&!players.some(q=>q.isHuman&&!q.surrendered)&&time-gameOverT>3)return;pathBudget=12;pathExp=60000;rebuildHash();
+ time+=dt;if(gameOver&&!players.some(q=>q.isHuman&&!q.surrendered)&&time-gameOverT>3)return;pathBudget=12;pathExp=60000;pathEmerg=4;rebuildHash();
  for(const p of players){p.pop=0;p.popCap=0;}
  for(const u of units)if(!u.dead)players[u.owner].pop+=UNITS[u.type].pop;
  for(const b of blds)if(!b.dead&&b.built&&BLD[b.type].pop)players[b.owner].popCap+=BLD[b.type].pop;
@@ -983,7 +1019,7 @@ function drawHelp(){uiBtns=[];tip=null;const [x,y]=overlayPanel(Math.min(W-40,90
  ['Select','Left-click a unit or building. Drag a box to select many (military is preferred over peasants). Shift adds. Double-click selects all of that type on screen.'],
  ['Command','Right-click ground to move, an enemy to attack. X then left-click = attack-move. C = stop. Ctrl/Shift+1-9 save a group, 1-9 recall it. "." = next idle peasant.'],
  ['Economy','Peasants gather wood (trees), stone (grey rocks), gold (glittering rocks): right-click them. Goods are carried to the Keep or nearest Lumber Camp / Quarry / Gold Mine. Farms give food: right-click a farm with peasants (2 per farm). Markets yield gold.'],
- ['Build','B opens the build menu, then a letter: H House, F Farm, L Lumber Camp, Q Quarry, G Gold Mine, M Market, B Barracks, S Stable, W Workshop, A Wall, E Gate, T Tower, O Fortress (Shift+letter = place several, Esc cancels). Or click a BUILD button. Place inside your territory (near completed buildings, not near enemies; red ghost = invalid). Selected peasants (or the nearest idle one) walk over and build; more builders = faster (diminishing). Right-click a site or damaged building with peasants to build/repair, or select the building and press N (Repair: nearest idle peasants; costs wood/stone in proportion to damage). Del cancels a site (full refund; 50% back if destroyed unfinished).'],
+ ['Build','B opens the build menu, then a letter: H House, F Farm, L Lumber Camp, Q Quarry, G Gold Mine, M Market, B Barracks, S Stable, W Workshop, A Wall, E Gate, T Tower, O Fortress (Shift+letter = place several, Esc cancels). Or click a BUILD button. Place anywhere on open, explored ground that is not occupied by buildings, resources, water or enemy units (red ghost = invalid); there is no territory limit, expansion only needs peasants to walk there and build. Selected peasants (or the nearest idle one) walk over and build; more builders = faster (diminishing). Right-click a site or damaged building with peasants to build/repair, or select the building and press N (Repair: nearest idle peasants; costs wood/stone in proportion to damage). Del cancels a site (full refund; 50% back if destroyed unfinished).'],
  ['Garrison','Right-click your Keep (40), Fortress (30) or Tower (6) with peasants/spearmen/archers, or press G. Inside they are safe; archers add arrows. U unloads (to the rally point). Town Bell: B with the Keep selected (or Shift+B anywhere) calls peasants first, then infantry inside; ring again to release — peasants resume work. Units flee out if the building falls.'],
  ['Army','Keep trains peasants; Barracks: spearmen & archers; Stable: knights; Workshop: catapults. Q/E/R/T train from the selected building (when the build menu is closed). Right-click with a building selected sets its rally point. Houses raise population.'],
  ['Counters','Spearmen beat knights. Knights crush archers & catapults. Archers shred infantry. Catapults demolish walls and buildings. Towers, Keeps and Fortresses shoot arrows.'],

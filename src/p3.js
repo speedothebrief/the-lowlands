@@ -7,13 +7,15 @@ function initAI(p){const P=PERS[p.pers],Df=DIFF[difficulty];
   for(let y=cy-R+1;y<cy+R;y++){add(cx-R,y,y===cy);add(cx+R,y,y===cy);}
   ring.sort((a,b)=>(b.g?1:0)-(a.g?1:0));p.ai.ring=ring;p.ai.ringSet=set;}}
 function affordRes(p,c,reserve){for(const r of RES){const need=(c[r]||0)+(reserve?(reserve[r]||0)*.8:0);if(p.res[r]<need)return false;}return true;}
+// placement is no longer limited by territory: the AI keeps its own buildings away from enemy bases
+function aiSafe(p,x,y){for(const b of blds)if(!b.dead&&isEnemy(p.id,b.owner)&&!BLD[b.type].wall&&dist(x,y,b.x,b.y)<14)return false;return true;}
 function aiFindSpot(p,type){const D=BLD[type];const k=p.keep;let cx=k.x,cy=k.y,r0=3,r1=15;
- if(D.drop&&type!=='fortress'){const n=nearestRes(RT[D.drop[0]],k.x,k.y,24,false);if(n){cx=n[0]+.5;cy=n[1]+.5;r0=1;r1=7;}}
+ if(D.drop&&type!=='fortress'){const n=nearestRes(RT[D.drop[0]],k.x,k.y,20,false);if(n){cx=n[0]+.5;cy=n[1]+.5;r0=1;r1=7;}}
  else if(type==='tower'){const a=Math.random()*Math.PI*2;const rad=p.ai.ring?8:rr(5,9);cx=k.x+Math.cos(a)*rad;cy=k.y+Math.sin(a)*rad;r0=0;r1=5;}
  else if(type==='farm'){r0=2;r1=12;}
  for(let r=r0;r<=r1;r++){const cands=[];for(let y=-r;y<=r;y++)for(let x=-r;x<=r;x++){if(Math.max(Math.abs(x),Math.abs(y))!==r)continue;cands.push([Math.round(cx+x-D.w/2),Math.round(cy+y-D.h/2)]);}
-  cands.sort(()=>Math.random()-.5);for(const c of cands)if(!canPlace(type,c[0],c[1],p.id,p.ai))return c;}
- if(D.drop&&type!=='fortress'){for(let r=3;r<=14;r++){for(let y=-r;y<=r;y++)for(let x=-r;x<=r;x++){if(Math.max(Math.abs(x),Math.abs(y))!==r)continue;const tx=Math.round(k.x+x-1),ty=Math.round(k.y+y-1);if(!canPlace(type,tx,ty,p.id,p.ai))return [tx,ty];}}}
+  cands.sort(()=>Math.random()-.5);for(const c of cands)if(aiSafe(p,c[0]+D.w/2,c[1]+D.h/2)&&!canPlace(type,c[0],c[1],p.id,p.ai))return c;}
+ if(D.drop&&type!=='fortress'){for(let r=3;r<=14;r++){for(let y=-r;y<=r;y++)for(let x=-r;x<=r;x++){if(Math.max(Math.abs(x),Math.abs(y))!==r)continue;const tx=Math.round(k.x+x-1),ty=Math.round(k.y+y-1);if(aiSafe(p,tx+D.w/2,ty+D.h/2)&&!canPlace(type,tx,ty,p.id,p.ai))return [tx,ty];}}}
  return null;}
 function attackMove(u,x,y){u.state='move';u.target=null;u.amove={x,y};u.leash=false;u.guard=null;goTo(u,x+rr(-1.5,1.5),y+rr(-1.5,1.5));u.amove={x:u.goal.x,y:u.goal.y};}
 function nearestBldOf(pid,x,y){let best=null,bd=1e9;for(const b of blds){if(b.dead||b.owner!==pid)continue;const d=dist(x,y,b.x,b.y)+(BLD[b.type].wall?6:0);if(d<bd){bd=d;best=b;}}return best;}
@@ -60,11 +62,13 @@ function aiThink(p){
   else{A.saveFor=BLD[ty].cost;break;}}
  if(A.ring&&t>150&&p.res.stone>60&&myB.filter(b=>!b.built&&BLD[b.type].wall).length<6){let placed=0;for(let tries=0;tries<A.ring.length&&placed<4;tries++){const c=A.ring[A.ringIdx%A.ring.length];A.ringIdx++;const i=c.y*MAP+c.x;if(bgrid[i]||tiles[i]||resT[i])continue;const ty=c.g?'gate':'wall';if(!afford(p,BLD[ty].cost))break;if(placeBuilding(ty,c.x,c.y,p.id))placed++;}}
  // --- builders: every construction site / damaged building gets peasants (walls 1, others up to 2-3)
- {const sites=myB.filter(b=>!b.built||(b.hp<b.maxhp*.7&&t-b.lastHit>6&&!BLD[b.type].wall));if(sites.length){const busy=peas.filter(u=>u.state==='build').length;let cap=Math.max(2,Math.ceil(peas.length*.2))-busy;let wallB=peas.filter(u=>u.state==='build'&&u.bld&&BLD[u.bld.type].wall).length;
-  const free=peas.filter(u=>u.state!=='build'&&(u.state==='idle'||u.carry===0));sites.sort((a,b)=>(BLD[a.type].wall?1:0)-(BLD[b.type].wall?1:0)||(b.type==='house'?1:0)-(a.type==='house'?1:0));
+ {// sites builders repeatedly failed to reach (no passable approach tile) are cancelled and refunded
+  for(const b of myB)if(!b.built&&!b.dead&&(b.unreach||0)>=3&&b.prog<0.05){refund(p,BLD[b.type].cost);b.cancelled=true;killEnt(b,-1);}
+  const sites=myB.filter(b=>!b.dead&&(!b.built||(b.hp<b.maxhp*.7&&t-b.lastHit>6&&!BLD[b.type].wall&&t-(b.noFundsT||-99)>15)));if(sites.length){const busy=peas.filter(u=>u.state==='build').length;let cap=Math.max(2,Math.ceil(peas.length*.2))-busy;let wallB=peas.filter(u=>u.state==='build'&&u.bld&&BLD[u.bld.type].wall).length;
+  const free=peas.filter(u=>u.state!=='build'&&(u.state==='idle'||u.carry===0)&&!(u.state==='farm'&&u.job&&time-(u.job.t||0)<20));// fresh farmers (e.g. a farm's own builders) stay on their farmsites.sort((a,b)=>(BLD[a.type].wall?1:0)-(BLD[b.type].wall?1:0)||(b.type==='house'?1:0)-(a.type==='house'?1:0));
   for(const s of sites){if(cap<=0||!free.length)break;const want=BLD[s.type].wall?1:s.built?2:(BLD[s.type].time>30?3:2);let have=buildersOf(s);
    if(BLD[s.type].wall&&wallB>=2)continue;
-   while(have<want&&cap>0&&free.length){let bi=0,bs=1e9;free.forEach((u,i)=>{const sc=dist(u.x,u.y,s.x,s.y)-(u.state==='idle'?15:0);if(sc<bs){bs=sc;bi=i;}});const u=free.splice(bi,1)[0];if(assignBuild(u,s)){have++;cap--;if(BLD[s.type].wall)wallB++;}}}}}
+   while(have<want&&cap>0&&free.length){let bi=0,bs=1e9;free.forEach((u,i)=>{const sc=dist(u.x,u.y,s.x,s.y)-(u.state==='idle'?15:0)+(u.badBld===s&&t-u.badBldT<30?1e6:0);if(sc<bs){bs=sc;bi=i;}});if(bs>=5e5)break;const u=free.splice(bi,1)[0];if(assignBuild(u,s)){have++;cap--;if(BLD[s.type].wall)wallB++;}}}}}
  // --- military
  const maxArmy=Math.round(P.maxArmy*(0.8+0.2*Df.mult));
  if(army.length<maxArmy){const tc={};for(const u of army)tc[u.type]=(tc[u.type]||0)+1;for(const b of myB)for(const q of b.queue)tc[q]=(tc[q]||0)+1;
@@ -161,7 +165,7 @@ function setupGame(gseed,slots,diff,fog,size){
  updateVis();mmDirty=true;}
 function makeAI(pid){const p=players[pid];if(!p||p.surrendered||p.isAI)return;p.isAI=true;p.isHuman=false;initAI(p);msg(`${p.pname||p.short} left — ${p.name} is now ruled by the AI.`,'#cdbb90');checkEnd();}
 function sim(dt){
- time+=dt;if(gameOver&&!players.some(q=>q.isHuman&&!q.surrendered)&&time-gameOverT>3)return;pathBudget=12;pathExp=60000;rebuildHash();
+ time+=dt;if(gameOver&&!players.some(q=>q.isHuman&&!q.surrendered)&&time-gameOverT>3)return;pathBudget=12;pathExp=60000;pathEmerg=4;rebuildHash();
  for(const p of players){p.pop=0;p.popCap=0;}
  for(const u of units)if(!u.dead)players[u.owner].pop+=UNITS[u.type].pop;
  for(const b of blds)if(!b.dead&&b.built&&BLD[b.type].pop)players[b.owner].popCap+=BLD[b.type].pop;

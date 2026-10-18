@@ -1,11 +1,12 @@
 // Rules test of the shared simulation (headless, no browser): gather claim slots, Keep/Fortress fire rate,
-// peasant construction/repair, territory, garrisons + Town Bell, AI garrisoning, map sizes, doubled resource nodes.
+// peasant construction/repair, free placement (no territory), builder auto-start (farm/lumber/quarry/mine),
+// stuck-peasant watchdog + soak, garrisons + Town Bell, AI garrisoning, map sizes, doubled resource nodes.
 'use strict';
 const fs=require('fs'),vm=require('vm'),path=require('path');
 const html=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
 const src=html.slice(html.indexOf('/*SIM-BEGIN*/'),html.indexOf('/*SIM-END*/'));
 const c=vm.createContext({console});
-vm.runInContext(src+';globalThis.API={setupGame,sim,applyCmd,nearestRes,spawnUnit,spawnBld,killEnt,makeSnap,canPlace,repairCost,BLD,UNITS,STEP,RES_AMT,get:()=>({units,blds,players,claim,resT,resA,projs,MAP,STARTS,time})};',c);
+vm.runInContext(src+';globalThis.API={setupGame,sim,applyCmd,nearestRes,spawnUnit,spawnBld,killEnt,makeSnap,canPlace,repairCost,RT,BLD,UNITS,STEP,RES_AMT,get:()=>({units,blds,players,claim,resT,resA,projs,MAP,STARTS,time})};',c);
 const A=c.API;let fails=0;const ok=(v,m)=>{console.log((v?'PASS ':'FAIL ')+m);if(!v)fails++;};
 const run=sec=>{for(let s=0;s<Math.round(sec*30);s++)A.sim(A.STEP);};
 const my=(pid,ty)=>A.get().units.filter(u=>u.owner===pid&&(!ty||u.type===ty));
@@ -59,16 +60,74 @@ A.setupGame(31337,[{human:true}],'normal',false);g=A.get();{const K=g.players[0]
  A.applyCmd(0,{t:'build',type:'barracks',spots:[spot2],ids:[]});const bk=A.get().blds.find(b=>b.type==='barracks');A.applyCmd(0,{t:'cancelbld',bid:bk.id});run(.1);
  ok(bk.dead&&P.res.wood===w1,'cancelling a construction site refunds the full cost');
  A.applyCmd(0,{t:'build',type:'barracks',spots:[spot2],ids:[]});const bk2=A.get().blds.find(b=>b.type==='barracks'&&!b.dead);A.killEnt(bk2,1);ok(P.res.wood===w1-75,'a site destroyed before completion refunds 50%');
- // territory
- ok(!!A.canPlace('tower',K.tx+40,K.ty-40,0,null),'cannot place far outside your territory');
- const E=g.players[1].keep;ok(!!A.canPlace('tower',Math.floor(E.x)+3,Math.floor(E.y),0,null),'cannot place next to an enemy Keep');
- const tw=A.spawnBld('tower',Math.floor(K.x)+10,Math.floor(K.y),0,true);ok(!!A.canPlace('tower',Math.floor(K.x)+18,Math.floor(K.y),0,null),'towers do not extend territory (no tower chains)');tw.dead=true;run(.1);
+ // placement: no territory limit, only terrain/occupancy
+ {const fo=vm.runInContext('fogOn',c);vm.runInContext('fogOn=false',c);
+  let far=null;for(let d=0;d<40&&!far;d++){const tx=K.tx+30+d,ty=K.ty-30;if(!A.canPlace('tower',tx,ty,0,null))far=[tx,ty];}
+  ok(!!far,'can place a building far from your own buildings (no territory limit)');
+  const E=g.players[1].keep;let nearE=null;for(let r=3;r<8&&!nearE;r++)for(let a=0;a<16&&!nearE;a++){const tx=Math.round(E.x+Math.cos(a/16*6.28)*r),ty=Math.round(E.y+Math.sin(a/16*6.28)*r);if(!A.canPlace('tower',tx,ty,0,null))nearE=[tx,ty];}
+  ok(!!nearE,'can place a building close to an enemy Keep');
+  ok(/building/i.test(A.canPlace('tower',K.tx,K.ty,0,null)||''),'cannot overlap a building');
+  let rt=-1;const gg=A.get();for(let i=0;i<gg.resT.length;i++)if(gg.resT[i]){rt=i;break;}
+  ok(/resource/i.test(A.canPlace('tower',rt%gg.MAP,Math.floor(rt/gg.MAP),0,null)||''),'cannot overlap a resource node');
+  if(far){A.applyCmd(0,{t:'build',type:'tower',spots:[far],ids:[]});const st=A.get().blds.find(b=>b.type==='tower'&&!b.dead&&!b.built&&b.owner===0);ok(!!st&&A.get().units.some(u=>u.bld===st),'a far site gets a peasant walking to build it');if(st)A.applyCmd(0,{t:'cancelbld',bid:st.id});run(.1);}
+  vm.runInContext('fogOn='+fo,c);}
  // repair: costs wood/stone proportional to damage, peasants + Repair button (repairauto)
  h.hp=h.maxhp*.5;const rc=A.repairCost(h,h.maxhp*.5);ok(Math.abs(rc.wood-12.5)<.01,`repair cost: 50% of build cost for a full repair, proportional (half HP of a House = ${rc.wood} wood)`);
  A.applyCmd(0,{t:'stop',ids:my(0,'peasant').map(u=>u.id)});const wr=P.res.wood;A.applyCmd(0,{t:'repairauto',bid:h.id});const rep=A.get().units.filter(u=>u.bld===h).length;
  ok(rep>=1&&rep<=3,`Repair (N) auto-assigns the nearest idle peasants (${rep})`);run(30);ok(h.hp>=h.maxhp-1,'house repaired to full');ok(Math.abs((wr-P.res.wood)-12.5)<1,`repair charged ~12.5 wood (${(wr-P.res.wood).toFixed(1)})`);
  const sn=A.makeSnap();ok(sn.U.length===A.get().units.length,'snapshot sane after construction');}
 
+console.log('--- farm builders start farming');
+A.setupGame(4711,[{human:true}],'normal',false);g=A.get();{const K=g.players[0].keep;const P=g.players[0];P.res.wood=5000;
+ const pz=my(0,'peasant');let spot=null;for(let r=4;r<10&&!spot;r++)for(let a=0;a<16&&!spot;a++){const tx=Math.round(K.x+Math.cos(a/16*6.28)*r)-1,ty=Math.round(K.y+Math.sin(a/16*6.28)*r)-1;if(!A.canPlace('farm',tx,ty,0,null))spot=[tx,ty];}
+ A.applyCmd(0,{t:'build',type:'farm',spots:[spot],ids:pz.slice(0,3).map(u=>u.id)});const f=A.get().blds.find(b=>b.type==='farm');
+ for(let i=0;i<30*40&&!f.built;i++)A.sim(A.STEP);run(1);
+ const farming=pz.slice(0,3).filter(u=>u.state==='farm'&&u.job&&u.job.farm===f);
+ ok(f.built&&farming.length===2,`human: the 3 builders of a Farm → 2 start farming it on completion (${farming.length}), slots respected`);
+ ok(pz.slice(0,3).some(u=>!(u.job&&u.job.farm===f)),'the 3rd builder does not overfill the farm');
+ run(5);ok(P.res.food>300,'the new farmers produce food');}
+// AI: every farm the AI finishes gets its builders as farmers
+A.setupGame(8080,[{human:true}],'normal',true);{let watched=new Map(),checked=0,good=0;const bset=new Map();
+ for(let s=0;s<30*360;s++){const before=new Map();for(const u of A.get().units)if(u.owner>0&&u.bld&&u.bld.type==='farm'&&!u.bld.built){before.set(u,u.bld);(bset.get(u.bld)||bset.set(u.bld,new Set()).get(u.bld)).add(u);}
+  A.sim(A.STEP);for(const [u,f] of before)if(f.built&&!watched.has(f))watched.set(f,{u:[...bset.get(f)].filter(v=>v.bld===f||(v.job&&v.job.farm===f)),t:A.get().time});
+  for(const [f,w] of watched){if(w.done||A.get().time-w.t<1)continue;w.done=true;checked++;const fs=w.u.filter(v=>!v.dead&&v.job&&v.job.farm===f);if(fs.length>=Math.min(2,w.u.filter(v=>!v.dead).length)||(fs.length>=1&&f.workers.length>=2))good++;else if(process.env.DBG)console.log('  miss',f.owner,w.u.map(v=>v.state+'/'+(v.job?(v.job.farm?'farm'+(v.job.farm===f):v.job.rt):'-')+'/'+(v.bld?v.bld.type:'')).join(' '),'workers',f.workers.length);}}
+ ok(checked>=3&&good===checked,`AI: builders of every completed AI Farm immediately farm it (${good}/${checked} farms)`);}
+console.log('--- builders auto-gather at a finished Lumber Camp / Quarry / Gold Mine');
+for(const [ty,rt] of [['lumber','wood'],['quarry','stone'],['mine','gold']]){
+ A.setupGame(606,[{human:true}],'normal',false);g=A.get();const K=g.players[0].keep,P=g.players[0];P.res.wood=P.res.stone=P.res.gold=5000;
+ const n=A.nearestRes(A.RT[rt],K.x,K.y,40,false);let spot=null;
+ for(let r=2;r<8&&!spot;r++)for(let a=0;a<24&&!spot;a++){const tx=Math.round(n[0]+Math.cos(a/24*6.28)*r)-1,ty2=Math.round(n[1]+Math.sin(a/24*6.28)*r)-1;if(!A.canPlace(ty,tx,ty2,0,null))spot=[tx,ty2];}
+ const pz=my(0,'peasant').slice(0,2);A.applyCmd(0,{t:'build',type:ty,spots:[spot],ids:pz.map(u=>u.id)});const b=A.get().blds.find(o=>o.type===ty&&o.owner===0);
+ for(let i=0;i<30*90&&!b.built;i++)A.sim(A.STEP);A.sim(A.STEP);A.sim(A.STEP);
+ const gs=pz.filter(u=>u.state==='gather'&&u.job&&u.job.rt===rt);const cl=A.get().claim,M=A.get().MAP;
+ const nodes=gs.map(u=>u.job.ty*M+u.job.tx);
+ ok(b.built&&gs.length===2,`${ty}: both builders start gathering ${rt} on completion (${gs.length}/2)`);
+ ok(new Set(nodes).size===nodes.length&&gs.every(u=>cl[u.job.ty*M+u.job.tx]===u.id),`${ty}: they hold distinct claim slots`);
+ const nb=A.nearestRes(A.RT[rt],b.x,b.y,14,false);const dn=Math.hypot(nb[0]+.5-b.x,nb[1]+.5-b.y);
+ ok(gs.every(u=>Math.hypot(u.job.tx+.5-b.x,u.job.ty+.5-b.y)<=dn+4),`${ty}: the ${rt} they gather is next to the new building`);
+ if(ty==='lumber'){const w0=P.res.wood;run(25);ok(P.res.wood>w0,`lumber builders deliver wood (+${(P.res.wood-w0)|0})`);}}
+// AI builders of drop sites
+A.setupGame(9090,[{human:true}],'normal',true);{let checked=0,good=0;const seen=new Set();
+ for(let s=0;s<30*300;s++){const before=[];for(const u of A.get().units)if(u.owner>0&&u.bld&&!u.bld.built&&['lumber','quarry','mine'].includes(u.bld.type))before.push([u,u.bld]);
+  A.sim(A.STEP);for(const [u,b] of before)if(b.built&&!seen.has(u.id+':'+b.id)){seen.add(u.id+':'+b.id);checked++;const rt={lumber:'wood',quarry:'stone',mine:'gold'}[b.type];if(u.state==='gather'&&u.job&&u.job.rt===rt)good++;}}
+ ok(checked>=2&&good>=checked*.8,`AI: builders of finished Lumber Camps/Quarries/Mines gather the matching resource (${good}/${checked})`);}
+console.log('--- stuck peasants: watchdog + soak');
+A.setupGame(1212,[{human:true}],'normal',false);g=A.get();{const K=g.players[0].keep,M=g.MAP;
+ // box a peasant in with walls 3 tiles from a tree, then order it to gather there: it can never reach the tree
+ const n=A.nearestRes(A.RT.wood,K.x,K.y,40,true);let box=null;
+ for(let r=3;r<7&&!box;r++)for(let a=0;a<16&&!box;a++){const cx=Math.round(n[0]+Math.cos(a/16*6.28)*r),cy=Math.round(n[1]+Math.sin(a/16*6.28)*r);let okb=true;for(let y=cy-1;y<=cy+1;y++)for(let x=cx-1;x<=cx+1;x++)if(A.canPlace('wall',x,y,0,null))okb=false;if(okb)box=[cx,cy];}
+ const u=my(0,'peasant')[0];for(let y=box[1]-1;y<=box[1]+1;y++)for(let x=box[0]-1;x<=box[0]+1;x++)if(x!==box[0]||y!==box[1])A.spawnBld('wall',x,y,0,true);
+ u.x=box[0]+.5;u.y=box[1]+.5;u.path=null;A.applyCmd(0,{t:'gather',ids:[u.id],x:n[0],y:n[1]});const ti=n[1]*M+n[0];
+ let held=0;for(let i=0;i<30*20;i++){A.sim(A.STEP);if(A.get().claim[ti]===u.id)held++;}
+ ok((u.unstuck||0)>=1||u.state==='idle',`watchdog: a peasant that cannot progress at its job is unstuck (unstuck=${u.unstuck||0}, state=${u.state})`);
+ ok(A.get().claim[ti]!==u.id,'watchdog: its claim on the unreachable node is released');}
+// soak: all-AI game, no peasant may sit at a job without progress for >10 s
+for(const [sz,seed,mins] of [['small',7,8],['medium',12,6]]){A.setupGame(seed,[{human:true}],'normal',true,sz);const last=new Map();let worst=0,bad=0;
+ for(let s=0;s<30*60*mins;s++){A.sim(A.STEP);if(s%30)continue;const t=A.get().time;
+  for(const v of A.get().units){if(v.dead||v.type!=='peasant'||v.owner===0||v.inG)continue;if(!['gather','return','farm','build'].includes(v.state)){last.delete(v.id);continue;}
+   const key=[v.state,Math.round(v.x*4),Math.round(v.y*4),v.carry|0,v.bld?Math.round((v.bld.prog+v.bld.hp/v.bld.maxhp)*100):0,v.state==='farm'?Math.floor(t/3):0].join(',');
+   const L=last.get(v.id);if(!L||L.k!==key||v.working&&v.state==='gather')last.set(v.id,{k:key,t});else if(t-L.t>10){bad++;worst=Math.max(worst,t-L.t);L.t=t;}}}
+ ok(bad===0,`soak ${sz} ${mins} min: no AI peasant stuck at its job for >10 s (${bad} events, worst ${worst.toFixed(0)} s)`);}
 console.log('--- garrison & Town Bell');
 A.setupGame(2024,[{human:true}],'normal',false);g=A.get();{const K=g.players[0].keep;const P=g.players[0];
  const pz=my(0,'peasant');const sp=[0,1,2].map(i=>A.spawnUnit('spearman',K.x+3+i*.4,K.y+3,0));const kn=A.spawnUnit('knight',K.x+3,K.y+4,0);

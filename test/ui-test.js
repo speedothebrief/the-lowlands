@@ -39,8 +39,9 @@ const SHOTS=path.join(require('os').tmpdir(),'kom-shots');require('fs').mkdirSyn
  const fr=await p.evaluate(()=>({n:blds.filter(b=>b.type==='farm'&&b.owner===me).length,placing,builders:units.filter(u=>u.state==='build').length}));
  ok(fr.n>=2&&fr.placing==='farm','Shift-placed several Farms in a row, still placing ('+JSON.stringify(fr)+')');
  ok(fr.builders>=1,'the nearest idle peasant walks over to build');await press('Escape');
- // red ghost / territory
- const why=await p.evaluate(()=>{const k=players[me].keep;const f0=fogOn;fogOn=false;let r=null;for(let d=0;d<30&&!r;d++){const w=canPlace('tower',Math.floor(k.x)+25+d,Math.floor(k.y)-25,me,null);if(w&&/territory/.test(w))r=w;}fogOn=f0;return r;});ok(!!why,'placement outside territory is rejected (ghost turns red): '+why);
+ // red ghost: invalid placement (on top of a building) is rejected with a reason; far-away placement is allowed (no territory limit)
+ const why=await p.evaluate(()=>{const k=players[me].keep;return canPlace('tower',Math.floor(k.x)-1,Math.floor(k.y)-1,me,null);});ok(!!why&&/building/i.test(why),'placement over a building is rejected (ghost turns red): '+why);
+ const farOK=await p.evaluate(()=>{const k=players[me].keep;const f0=fogOn;fogOn=false;let r=false;for(let d=0;d<30&&!r;d++){if(!canPlace('tower',Math.floor(k.x)+25+d,Math.floor(k.y)-25,me,null))r=true;}fogOn=f0;return r;});ok(farOK,'placement far from own buildings is allowed (no territory limit)');
  // ---- context: training keys vs build keys
  const ctxk=await p.evaluate(()=>{const k=players[me].keep;players[me].res.food=5000;players[me].res.gold=5000;players[me].res.stone=5000;
   const b=spawnBld('barracks',k.tx+5,k.ty-6,me,true);sel=[b];return b.id;});

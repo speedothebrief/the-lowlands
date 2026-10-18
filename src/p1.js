@@ -63,7 +63,7 @@ const DIFF={easy:{mult:.75,tm:1.4,wm:.75,bonus:0,label:'Easy'},normal:{mult:1,tm
 // ===== state =====
 let tiles,resT,resA,treeV,gcls,bgrid,vis,visMap={},resEvents=[];
 let units=[],blds=[],projs=[],parts=[],decals=[],players=[],msgs=[],pings=[];
-let time=0,nextId=1,state='menu',difficulty='normal',fogOn=true,showHelp=false,pathBudget=10,pathExp=60000,me=0,gameOver=false;
+let time=0,nextId=1,state='menu',difficulty='normal',fogOn=true,showHelp=false,pathBudget=10,pathExp=60000,pathEmerg=4,me=0,gameOver=false;
 let sel=[],groups={},placing=null,wallStart=null,amoveMode=false,lastAlert=null,lastAlertT=-99;
 let cam={x:0,y:0,z:1};
 let mmDirty=true;
@@ -140,7 +140,7 @@ function exposed(x,y){for(let d=0;d<4;d++){const nx=x+DX[d],ny=y+DY[d];if(inb(nx
 function nearestRes(t,x,y,maxR,needExposed=true,forU=null){x=Math.floor(x);y=Math.floor(y);
  for(let r=0;r<=maxR;r++){let best=null,bd=1e9;
   for(let yy=y-r;yy<=y+r;yy++){if(yy<0||yy>=MAP)continue;const step=(yy===y-r||yy===y+r)?1:2*r||1;
-   for(let xx=x-r;xx<=x+r;xx+=step){if(xx<0||xx>=MAP)continue;const i=yy*MAP+xx;if(resT[i]!==t)continue;if(needExposed&&!exposed(xx,yy))continue;if(forU&&!claimOK(i,forU))continue;const d=dist(xx,yy,x,y);if(d<bd){bd=d;best=[xx,yy];}}}
+   for(let xx=x-r;xx<=x+r;xx+=step){if(xx<0||xx>=MAP)continue;const i=yy*MAP+xx;if(resT[i]!==t)continue;if(needExposed&&!exposed(xx,yy))continue;if(forU&&(!claimOK(i,forU)||(forU.avoid&&forU.avoid.has(i)&&time-forU.avoid.get(i)<45)))continue;const d=dist(xx,yy,x,y);if(d<bd){bd=d;best=[xx,yy];}}}
   if(best)return best;}
  return null;}
 
@@ -177,16 +177,16 @@ function smooth(sx,sy,pts,owner){if(pts.length<2)return pts;const out=[];let cx=
  while(i<pts.length){let j=Math.min(pts.length-1,i+14);while(j>i&&!lineClear(cx,cy,pts[j][0],pts[j][1],owner))j--;out.push(pts[j]);cx=pts[j][0];cy=pts[j][1];i=j+1;}
  return out;}
 function goTo(u,x,y){u.repathT=time;u.goal={x,y};
- if(lineClear(u.x,u.y,x,y,u.owner)){u.path=[[x,y]];u.pend=null;return;}
+ if(!(u.stuckN>=2)&&lineClear(u.x,u.y,x,y,u.owner)){u.path=[[x,y]];u.pend=null;return;}
  u.path=[];u.pend={x,y};}
 function computePath(u){const {x,y}=u.pend;u.pend=null;const tx=Math.floor(x),ty=Math.floor(y);
  const p=findPath(Math.floor(u.x),Math.floor(u.y),tx,ty,u.owner);if(!p){u.path=[];return;}
- const sp=smooth(u.x,u.y,p,u.owner);
+ const sp=u.stuckN>=2?p.slice():smooth(u.x,u.y,p,u.owner);
  if(passable(tx,ty,u.owner)){if(sp.length&&Math.floor(sp[sp.length-1][0])===tx&&Math.floor(sp[sp.length-1][1])===ty)sp[sp.length-1]=[x,y];else if(!sp.length)sp.push([x,y]);}
  u.path=sp;}
 const hasPath=u=>!!(u.pend||(u.path&&u.path.length));
 function moveAlong(u,dt){
- if(u.pend){if(pathBudget>0&&pathExp>0){pathBudget--;computePath(u);}return false;}
+ if(u.pend){if(pathBudget>0&&pathExp>0){pathBudget--;u.pw=0;computePath(u);}else if((u.pw=(u.pw||0)+1)>18&&pathEmerg>0){pathEmerg--;u.pw=0;computePath(u);}return false;}
  if(!u.path||!u.path.length)return true;
  const p=u.path[0];const dx=p[0]-u.x,dy=p[1]-u.y,d=Math.hypot(dx,dy);const step=UNITS[u.type].speed*dt;
  if(Math.abs(dx-dy)>0.01)u.dir=(dx-dy)>0?1:-1;

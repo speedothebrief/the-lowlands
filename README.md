@@ -119,10 +119,10 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
   Repair costs wood/stone in proportion to the HP restored; a full 0→100% repair costs 50% of the
   building's build cost (Keep: 100 wood + 150 stone). Repair pauses if you can't pay.
   Repair has its own hammer sound, a green *✚ repairing ⚒ n* badge and green sparks.
-- **Territory.** You can only place a building near one of your *completed* buildings
-  (Keep/Fortress radius 13, other buildings 8, +3 for walls). Towers, walls and gates do not
-  extend territory, so you can't chain towers into an enemy camp. Nothing can be placed within
-  ~7 tiles of an enemy building. The placement ghost turns red and shows the reason.
+- **Placement (no territory limit).** You can place a building anywhere on explored, valid
+  ground (land, in bounds) that isn't occupied by another building, resource node, or enemy unit.
+  There is no "near your buildings" or "away from enemies" radius, so you expand by
+  sending peasants to walk there and build. The placement ghost turns red and shows the reason.
 - **Keep / Fortress arrows.** The Keep fires 2 arrows every 0.8 s (4× its old rate).
   The Fortress fires 4 arrows every 0.8 s, which is 2× the Keep and 8× the Keep's old rate.
   Volleys spread over nearby enemies, and a lone target still takes the full volley.
@@ -180,7 +180,7 @@ first click or key press (browser autoplay policy). Volumes and mute are saved i
 ## Tests
 ```bash
 npm test                     # two simulated WebSocket clients: lobby, start, command sync, ownership checks, disconnect → AI
-node test/rules-test.js      # gather claim slots, Keep/Fortress fire rates, peasant construction/repair/refunds, territory,
+node test/rules-test.js      # gather claim slots, Keep/Fortress fire rates, peasant construction/repair/refunds, free placement,
                              # garrisons + Town Bell (+ AI bell), doubled resource nodes, map sizes
 node test/sim-test.js [ai] [small|medium|large] [minutes]   # headless soak: AI economy, building, waves, surrender, tick cost
 npm i --no-save puppeteer-core            # once, for the two browser tests (needs a local Chrome/Chromium)
