@@ -17,8 +17,8 @@ const SHIM=`(()=>{const pcs=new Map();window.__bridgeRecv=m=>{const pc=pcs.get(m
  class PC extends EventTarget{constructor(){super();this.id=Math.random().toString(36).slice(2);pcs.set(this.id,this);__bridgeSend({op:'reg',id:this.id});this.iceGatheringState='new';this.connectionState='new';this.signalingState='stable';this.dc=null;}
   createDataChannel(l){this.dc=new DC(this,l);return this.dc;}
   async createOffer(){return{type:'offer',sdp:'v=0 shim '+this.id+' '+'x'.repeat(380)};}async createAnswer(){return{type:'answer',sdp:'v=0 shim '+this.id+' '+'y'.repeat(380)};}
-  async setLocalDescription(d){this.localDescription=d;this.iceGatheringState='complete';this.dispatchEvent(new Event('icegatheringstatechange'));}
-  async setRemoteDescription(d){this.remote=d.sdp.split(' ')[2];if(d.type==='answer'){__bridgeSend({op:'open',to:this.remote,from:this.id});this._ready();}}
+  async setLocalDescription(d){this.localDescription=d;this.signalingState=d.type==='offer'?'have-local-offer':'stable';this.iceGatheringState='complete';this.dispatchEvent(new Event('icegatheringstatechange'));}
+  async setRemoteDescription(d){if(d.type==='answer'&&this.signalingState!=='have-local-offer')throw new Error('InvalidStateError: no local offer');this.signalingState=d.type==='offer'?'have-remote-offer':'stable';this.remote=d.sdp.split(' ')[2];if(d.type==='answer'){__bridgeSend({op:'open',to:this.remote,from:this.id});this._ready();}}
   _ready(){this.connectionState='connected';const dc=this.dc;dc.readyState='open';setTimeout(()=>dc.onopen&&dc.onopen(),0);}
   _open(from){this.remote=from;const dc=new DC(this,'game');this.dc=dc;this.connectionState='connected';this.ondatachannel&&this.ondatachannel({channel:dc});dc.readyState='open';setTimeout(()=>dc.onopen&&dc.onopen(),0);}
   _msg(s){const dc=this.dc;if(dc&&dc.readyState==='open'&&dc.onmessage)dc.onmessage({data:s});}
@@ -49,7 +49,8 @@ async function until(p,fn,ms,arg){const t=Date.now();for(;;){const v=await p.eva
  ok(offer&&/^LL[01]/.test(offer),`invite code generated (${offer?offer.length:0} chars)`);
  const qr=await H.evaluate(()=>{const c=document.getElementById('p2pQR');if(!c||!c.width)return null;const d=c.getContext('2d').getImageData(0,0,c.width,c.height);return{w:c.width,h:c.height,d:Array.from(d.data)};});
  ok(!!qr&&qr.w>50,'QR code drawn for the invite ('+(qr?qr.w:0)+'px)');
- if(jsQR&&qr){const r=jsQR(new Uint8ClampedArray(qr.d),qr.w,qr.h);ok(r&&r.data===offer,'QR code decodes back to the exact invite code');}else console.log('  (jsqr not installed: QR decode check skipped)');
+ const link=await H.evaluate(()=>document.getElementById('p2pLink').value);ok(/#join=LL[01][\w-]+$/.test(link)&&link.endsWith(offer),'invite link carries the offer in the #fragment ('+link.length+' chars)');
+ if(jsQR&&qr){const r=jsQR(new Uint8ClampedArray(qr.d),qr.w,qr.h);ok(r&&r.data===link,'QR code decodes back to the exact invite link');}else console.log('  (jsqr not installed: QR decode check skipped)');
  await J.bringToFront();await sleep(200);await J.mouse.click(340+305+100,120+466+19);
  ok(await until(J,()=>!!document.getElementById('p2pIn')&&p2p&&p2p.role==='join',2000),'Join button opens the join dialog');
  await J.evaluate(c=>{document.getElementById('p2pIn').value=c;document.getElementById('p2pGo').click();},offer);
@@ -61,6 +62,24 @@ async function until(p,fn,ms,arg){const t=Date.now();for(;;){const v=await p.eva
  if(!lob){console.log(await H.evaluate(()=>JSON.stringify({st:(document.getElementById('p2pStatus')||{}).textContent,peers:[...p2p.peers].map(p=>[p.pc.connectionState,p.pc.iceConnectionState,p.pc.signalingState,p.dc.readyState,p.pc.localDescription.sdp.split('\n').filter(l=>/candidate/.test(l))])})));console.log(await J.evaluate(()=>JSON.stringify({st:(document.getElementById('p2pStatus')||{}).textContent,pc:[p2p.pc.connectionState,p2p.pc.iceConnectionState],c:p2p.pc.localDescription.sdp.split('\n').filter(l=>/candidate/.test(l))})));}
  ok(lob==='Hana,Jo','joiner connected over WebRTC and sees the lobby ('+lob+')');
  ok(await until(H,()=>!document.getElementById('p2pModal'),2000),'invite dialog closes once the player is connected');
+ // ---- invite LINK flow: K opens the #join= link (auto-answers), the host opens the #answer= reply link in another tab
+ await H.evaluate(()=>p2pInvite());const link2=await until(H,()=>{const e=document.getElementById('p2pLink');return e&&e.value.includes('#join=')?e.value:null;},8000);
+ const K=await page('join-link');await K.goto(link2);
+ const reply=await until(K,()=>{const e=document.getElementById('p2pReply');return e&&e.value.includes('#answer=')?e.value:null;},8000);
+ ok(!!reply,'opening the invite link auto-joins and shows a reply link');
+ ok(await K.evaluate(()=>!location.hash),'the invite fragment is removed from the address bar');
+ const R=await page('reply-tab');await R.goto(reply);
+ ok(await until(H,()=>lobby&&lobby.clients.length===3,8000),'opening the reply link in the host browser hands it to the host tab (BroadcastChannel/localStorage) → third player connected');
+ ok(await until(R,()=>/Delivered/.test((document.getElementById('p2pAnsMsg')||{}).textContent||''),3000),'the reply tab confirms delivery');
+ ok(await until(K,()=>state==='lobby'&&netKind==='p2p',3000),'the link joiner is in the lobby');
+ await R.close();await closePage(K);await until(H,()=>lobby&&lobby.clients.length===2,5000);
+ // pasting a reply LINK (not just the code) into the invite dialog works too
+ await H.evaluate(()=>p2pInvite());const link3=await until(H,()=>{const e=document.getElementById('p2pLink');return e&&e.value.includes('#join=')?e.value:null;},8000);
+ const K2=await page('join-paste');await K2.goto(FILE);await sleep(300);await K2.evaluate(l=>{p2pJoinStart();document.getElementById('p2pIn').value=l;document.getElementById('p2pGo').click();},link3);
+ const reply2=await until(K2,()=>{const e=document.getElementById('p2pReply');return e&&e.value.includes('#answer=')?e.value:null;},8000);
+ await H.evaluate(r=>{document.getElementById('p2pIn').value=r;document.getElementById('p2pGo').click();},reply2);
+ ok(await until(H,()=>lobby&&lobby.clients.length===3,8000),'pasting the invite link on the joiner and the reply link on the host connects');
+ await closePage(K2);await until(H,()=>lobby&&lobby.clients.length===2,5000);
  // lobby: slots, names, settings, start
  await H.evaluate(()=>{netSend({t:'slot',slot:0});netSend({t:'cfg',diff:'hard',fog:true,size:'medium'});});await J.evaluate(()=>{netSend({t:'slot',slot:0});netSend({t:'slot',slot:2});netSend({t:'start'});});
  await sleep(500);const lj=await J.evaluate(()=>({sl:lobby.clients.map(c=>c.name+':'+c.slot).join(','),diff:lobby.diff,size:lobby.size,inGame:lobby.inGame}));
@@ -94,6 +113,12 @@ async function until(p,fn,ms,arg){const t=Date.now();for(;;){const v=await p.eva
  await J2.evaluate(()=>p2pJoinStart());await J2.evaluate(c=>{document.getElementById('p2pRoom').value=c;document.getElementById('p2pRoomGo').click();},code);
  const l2=await until(J2,()=>state==='lobby'&&netKind==='p2p'&&lobby&&lobby.clients.length===2?lobby.p2p:null,10000);
  ok(l2===true,'joining by room code connects peer-to-peer (no codes to copy)');
+ // hands-free join link with the relay: http://host:port/?room=CODE
+ await H2.evaluate(()=>p2pInvite());const rl=await until(H2,()=>{const e=document.getElementById('p2pRoomLink');return e&&e.value.includes('?room=')?e.value:null;},4000);
+ ok(rl===URL+'?room='+code,'served page: the invite dialog offers a ?room= join link ('+rl+')');
+ const J3=await page('join3');await J3.goto(rl);
+ ok(await until(J3,()=>state==='lobby'&&netKind==='p2p'&&lobby&&lobby.clients.length===3,10000),'opening the ?room= link joins fully hands-free');
+ ok(await J3.evaluate(()=>!location.search),'the ?room= query is removed after joining');
  await J2.evaluate(()=>{p2pJoinStart();});await J2.evaluate(()=>{document.getElementById('p2pRoom').value='ZZZZ';document.getElementById('p2pRoomGo').click();});
  ok(await until(J2,()=>/No room/.test((document.getElementById('p2pStatus')||{}).textContent||''),3000),'unknown room code is reported');
  // the classic server lobby still works from the same page

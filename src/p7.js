@@ -201,7 +201,7 @@ function drawLobby(){uiBtns=[];tip=null;const [x,y]=overlayPanel(640,560);const 
   const canStart=lobby.clients.some(c=>c.slot>=0);bigBtn(x+170,y+438,300,canStart?'▶  Start Game':'Take a slot to start',()=>{if(canStart)netSend({t:'start'});},canStart);}
  else text(`Waiting for the host to start…  (AI: ${DIFF[lobby.diff].label}, fog ${lobby.fog?'on':'off'}, map ${(MAPSIZES[lobby.size]||MAPSIZES.small).label})`,W/2,y+400,'#cdbb90','14px Georgia, serif','center');
  if(pp&&p2p&&p2p.role==='host'){text(`Hosted in this browser${p2p.code?` — room code ${p2p.code}`:''}. Empty slots are played by the AI; the AI takes over anyone who disconnects.`,W/2,y+472,'#998','12px Georgia, serif','center');
-  smallBtn(x+30,y+510,200,26,'➕ Invite player (code / QR)',()=>{p2pInvite();},{t:'Create an invite code for one more player'});}
+  smallBtn(x+30,y+510,200,26,'➕ Invite player (link / QR)',()=>{p2pInvite();},{t:'Create an invite code for one more player'});}
  else text(pp?'Connected peer-to-peer to the host. Empty slots are played by the AI.':'Others join by opening this same URL on their computer. Empty slots are played by the AI.',W/2,y+480,'#998','12px Georgia, serif','center');
  smallBtn(x+270,y+510,100,26,'Back',()=>{if(pp)p2pLeave(true);state='menu';},{t:pp&&p2p&&p2p.role==='host'?'Close the room':'Return to main menu'});}
 function drawPause(){uiBtns=[];tip=null;const net=mode==='net';const host=net&&lobby&&lobby.host===myCid;const [x,y]=overlayPanel(360,300);
@@ -237,5 +237,5 @@ function frame(now){const dt=Math.min(.1,(now-last)/1000);last=now;
  else{renderWorld(false);drawUI();if(showHelp)drawHelp();else if(state==='paused')drawPause();else if((state==='won'||state==='lost')&&!endShown)drawEnd();}
  }catch(err){console.error(err);window.__lastError=String(err&&err.stack||err);}
  requestAnimationFrame(frame);}
-previewMap();netConnect();requestAnimationFrame(frame);
+previewMap();netConnect();p2pBoot();requestAnimationFrame(frame);
 
