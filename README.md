@@ -102,16 +102,37 @@ about 15 Hz. If a player disconnects, the AI takes over their kingdom.
 websocket. The game itself runs peer-to-peer in the host's browser. The classic
 server-hosted LAN lobby keeps working as before.
 
-**Networking notes.** By default only host (LAN) ICE candidates are used, with no STUN server,
-so the players must be on the same network. Tick *use a public STUN server* in the dialog to
-try across the internet; without TURN, strict NATs may still block it. The host's simulation is
+**Networking notes (Brave and other privacy browsers).** Brave's default *WebRTC IP handling
+policy* hides the computer's local addresses from WebRTC. Without a STUN server the invite and
+answer codes then contain **no network addresses at all**, and the joiner sits at "connecting"
+forever, even on the same LAN. (This was the cause of the old "never connects" bug: STUN used to
+be off by default.) So now:
+- **STUN is on by default.** Public STUN (Google, Cloudflare) is used, plus `server.js`'s own tiny
+  STUN responder on **UDP 3478** when a signaling server is in use. The server's responder also
+  works on a LAN with no internet. Untick *use STUN* only for strictly offline LANs where the
+  browser exposes local addresses. A custom server can be set with
+  `localStorage.kom_stun_url = 'stun:host:port'`.
+- **Diagnostics.** The dialogs show ICE gathering and connection state, plus how many LAN, mDNS,
+  STUN and TURN addresses each side has. If none were gathered, a warning says so and advises:
+  Brave → `brave://settings/privacy` → *WebRTC IP handling policy* → **Default** (or *Default
+  public and private interfaces*). Also check for Wi-Fi *client/AP isolation*.
+- **Checksummed codes.** Codes start with `LL2` and end with `.<crc32>`. A truncated or mangled
+  paste gives a clear "incomplete or damaged (N characters received)" error.
+- **Automatic relay fallback.** If WebRTC hasn't connected about 10 s after the answer, and the
+  host has a signaling server, the host relays that player's game traffic through the server's
+  websocket instead. This works for room codes and also for copy-paste codes: the invite carries
+  the room code, so the joiner stands by on the server. The game, lobby, commands and AI takeover
+  all work the same. The server only forwards messages.
+
+Without TURN, players behind strict NATs on different networks may still need the relay. The host's simulation is
 driven by a Worker timer, so it keeps running when the host's tab is in the background. If the
 host closes their tab, the game ends for everyone. Codes are compressed (deflate-raw +
 base64url, about 500 characters). The QR encoder is built in, with no dependencies.
 
 ## Hosting on Synology (or any Docker host)
 The repo ships with a `Dockerfile` (node:20-alpine, production dependencies only, runs as the
-non-root `node` user, exposes 8080) and a `docker-compose.yml` (`8080:8080`, `restart: unless-stopped`).
+non-root `node` user, exposes 8080 and 3478/udp) and a `docker-compose.yml` (`8080:8080`, `3478:3478/udp` for the
+built-in STUN responder, `restart: unless-stopped`). Set `STUN_PORT=0` to turn the STUN responder off.
 The same container is also a **signaling server** for peer-to-peer games: in the Join dialog, set it as the *Signaling server* (e.g. `192.168.1.20:8080`), and players then join by short room code even from a downloaded `index.html`.
 Anywhere with Docker:
 
@@ -264,8 +285,11 @@ CHROME=/usr/bin/google-chrome node test/audio-test.js   # headless Chrome: audio
 CHROME=/usr/bin/google-chrome node test/ui-test.js      # headless Chrome: build hotkeys, context keys, garrison/bell/repair UI,
                                                         # map-size menu, LAN lobby map size, LAN building + bell
 CHROME=/usr/bin/google-chrome node test/p2p-test.js     # (optional: npm i --no-save jsqr, or JSQR=path, for the QR decode check)
-                                                        # two Chrome pages: P2P host/join via manual codes (file://) + QR decode,
+                                                        # REAL WebRTC between two Chrome pages via server.js's STUN responder:
+                                                        # reproduces the no-STUN zero-address bug + Brave warning, checksum errors,
+                                                        # manual codes (file://) + QR decode,
                                                         # lobby, chunked init, 15 Hz snapshots, commands, disconnect → AI; room code,
+                                                        # relay fallback after ~10 s when WebRTC is blocked (room code and copy-paste),
                                                         # file:// pages using a saved signaling server by short code, room expiry
 ```
 

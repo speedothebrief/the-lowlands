@@ -53,13 +53,27 @@ function sigClose(code,why){const r=sigRooms.get(code);if(!r)return;sigRooms.del
  if(why){try{r.ws.send(JSON.stringify({t:'expired'}));r.ws.close();}catch(e){}}console.log(`P2P room ${code} closed${why?' ('+why+')':''}`);}
 sigs.on('connection',ws=>{const id=sigN++;let hostOf=null,joinedTo=null,misses=0;ws.alive=true;ws.on('pong',()=>{ws.alive=true;});
  const tx=(w,o)=>{if(w&&w.readyState===1)w.send(JSON.stringify(o));};
+ tx(ws,{t:'hi',stun:stunPort});   // tell browsers about our STUN responder
  ws.on('message',d=>{let m;try{m=JSON.parse(d);}catch(e){return;}if(!m)return;
   if(m.t==='host'&&!hostOf){if(sigRooms.size>=SIG_MAX_ROOMS){tx(ws,{t:'full'});return;}hostOf=sigCode();sigRooms.set(hostOf,{ws,peers:new Map(),t0:Date.now()});tx(ws,{t:'code',code:hostOf,ttl:SIG_TTL});console.log('P2P room '+hostOf+' opened');}
   else if(m.t==='join'){const code=String(m.code||'').toUpperCase().replace(/[^A-Z]/g,'');const r=sigRooms.get(code);
    if(!r){tx(ws,{t:'nocode'});if(++misses>=10)ws.close();return;}   // no brute-forcing codes over one socket
-   if(joinedTo)joinedTo.peers.delete(id);joinedTo=r;r.peers.set(id,ws);tx(r.ws,{t:'peer',id,name:String(m.name||'').slice(0,16)});}
+   if(joinedTo)joinedTo.peers.delete(id);joinedTo=r;r.peers.set(id,ws);tx(r.ws,{t:'peer',id,name:String(m.name||'').slice(0,16),standby:!!m.standby,inv:m.inv?String(m.inv).slice(0,12):undefined});}
+  // fallback transport when WebRTC can't connect: game messages relayed host <-> joiner over these sockets
+  else if(m.t==='relay'&&typeof m.data==='string'){if(hostOf){const r=sigRooms.get(hostOf);tx(r&&r.peers.get(m.to),{t:'relay',data:m.data});}else if(joinedTo)tx(joinedTo.ws,{t:'relay',from:id,data:m.data});}
   else if(m.t==='sig'&&typeof m.data==='string'){if(hostOf){const r=sigRooms.get(hostOf);tx(r&&r.peers.get(m.to),{t:'sig',data:m.data});}else if(joinedTo)tx(joinedTo.ws,{t:'sig',from:id,data:m.data});}});
- ws.on('close',()=>{if(hostOf&&sigRooms.get(hostOf)&&sigRooms.get(hostOf).ws===ws)sigClose(hostOf);if(joinedTo)joinedTo.peers.delete(id);});});
+ ws.on('close',()=>{if(hostOf&&sigRooms.get(hostOf)&&sigRooms.get(hostOf).ws===ws)sigClose(hostOf);if(joinedTo){joinedTo.peers.delete(id);tx(joinedTo.ws,{t:'peergone',id});}});});
+// ===== tiny STUN responder (RFC 5389 Binding → XOR-MAPPED-ADDRESS) on UDP STUN_PORT (default 3478, 0 = off) =====
+// Browsers that hide local addresses (Brave's default WebRTC policy) only produce candidates via STUN; this lets a LAN
+// without internet still get them from the game server. Stateless, a few lines, no dependencies.
+const stunPort=process.env.STUN_PORT==null?3478:+process.env.STUN_PORT;
+if(stunPort){const stun=require('dgram').createSocket('udp4');
+ stun.on('message',(m,r)=>{if(m.length<20||m.readUInt16BE(0)!==0x0001||m.readUInt32BE(4)!==0x2112A442)return;
+  const at=Buffer.alloc(12);at.writeUInt16BE(0x0020,0);at.writeUInt16BE(8,2);at[5]=1;at.writeUInt16BE(r.port^0x2112,6);
+  r.address.split('.').forEach((v,i)=>{at[8+i]=(+v)^[0x21,0x12,0xA4,0x42][i];});
+  const h=Buffer.alloc(20);h.writeUInt16BE(0x0101,0);h.writeUInt16BE(at.length,2);h.writeUInt32BE(0x2112A442,4);m.copy(h,8,8,20);stun.send(Buffer.concat([h,at]),r.port,r.address);});
+ stun.on('error',e=>console.log(`  (STUN responder off: ${e.message})`));
+ stun.bind(stunPort,'0.0.0.0',()=>console.log(`  STUN:   udp port ${stunPort} (helps browsers like Brave connect peer-to-peer)`));}
 // reap dead sockets and expired rooms
 setInterval(()=>{for(const ws of sigs.clients){if(!ws.alive){ws.terminate();continue;}ws.alive=false;try{ws.ping();}catch(e){}}
  const now=Date.now();for(const [c,r] of sigRooms)if(now-r.t0>SIG_TTL)sigClose(c,'expired');},Math.min(30000,Math.max(500,SIG_TTL/4))).unref();

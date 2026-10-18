@@ -5,6 +5,7 @@ services:
     container_name: the-lowlands
     ports:
       - "8080:8080"
+      - "3478:3478/udp"   # STUN responder for peer-to-peer games (Brave etc.)
     environment:
       - PORT=8080
     restart: unless-stopped
