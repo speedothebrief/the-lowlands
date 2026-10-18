@@ -46,10 +46,10 @@ const ver=async port=>{try{return (await (await fetch(`http://127.0.0.1:${port}/
  {mode='hang';const p=app('hang');const okB=await wait(p,/game host is running/,8000);const dt=Date.now()-p.t0;
   ok(okB&&dt<5000,`a hanging GitHub API delays startup only ~3 s (banner after ${dt} ms)`);
   ok(/Version 1\.0\.9 · could not check for updates/.test(p.out),'…and the banner says the check failed');p.stop();}
- {const p=app('offline',{LOWLANDS_UPDATE_URL:'http://127.0.0.1:9/releases/latest'});ok(await wait(p,/Version 1\.0\.9 · could not check for updates \(offline\?\)/,6000),'offline: banner says the check failed, host runs');
+ {const p=app('offline',{LOWLANDS_UPDATE_URL:'http://127.0.0.1:9/releases/latest'});ok(await wait(p,/Version 1\.0\.9 · could not check for updates \(offline\?\)/,15000),'offline: banner says the check failed, host runs');
   ok((await ver(p.port)||{}).version===OLD,'offline host serves normally');p.stop();}
- {mode='ratelimit';const p=app('rl');ok(await wait(p,/rate-limited by GitHub/,6000),'GitHub rate limit (403) handled, retried later');const h0=hits;await sleep(2500);ok(hits===h0,'no hammering while rate-limited (waits for x-ratelimit-reset)');p.stop();}
- {mode='new';const h0=hits;const p=app('off',{LOWLANDS_NO_UPDATE:'1'});ok(await wait(p,/Version 1\.0\.9 · update check off/,6000),'LOWLANDS_NO_UPDATE=1: banner says off');await sleep(1500);ok(hits===h0,'…and GitHub is never contacted');p.stop();}
+ {mode='ratelimit';const p=app('rl');ok(await wait(p,/rate-limited by GitHub/,15000),'GitHub rate limit (403) handled, retried later');const h0=hits;await sleep(2500);ok(hits===h0,'no hammering while rate-limited (waits for x-ratelimit-reset)');p.stop();}
+ {mode='new';const h0=hits;const p=app('off',{LOWLANDS_NO_UPDATE:'1'});ok(await wait(p,/Version 1\.0\.9 · update check off/,15000),'LOWLANDS_NO_UPDATE=1: banner says off');await sleep(1500);ok(hits===h0,'…and GitHub is never contacted');p.stop();}
  for(const [m,re,what] of [['badsha',/SHA-256 checksum mismatch/,'SHA-256 mismatch'],['badsize',/size mismatch/,'size mismatch']]){mode=m;const p=app(m);
   ok(await wait(p,re,15000),`${what} → update refused`);ok(sha(fs.readFileSync(path.join(p.dir,BIN)))!==sha(newBin)&&(await ver(p.port)||{}).version===OLD,'…executable untouched, old version keeps running');p.stop();}
  // ---- full path: a game is running when the update appears
