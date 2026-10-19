@@ -1,10 +1,11 @@
-// ===== game room (lobby + authoritative loop) — shared by server.js (Node) and the browser P2P host =====
+'use strict';
+// ===== game room (lobby + authoritative 60 Hz loop) used by server.js =====
 // API: the simulation instance; opt.log(msg). join(sendStr) returns {msg(obj), leave()}.
 function createRoom(API,opt){opt=opt||{};const log=opt.log||(()=>{});
  let nextCid=1,host=null,inGame=false,cfg={diff:'normal',fog:true,size:'small'},loop=null,cmdQ=[],stepN=0,lastT=0,acc=0;
  const clients=new Map();
  const send=(c,o)=>{try{c.send(typeof o==='string'?o:JSON.stringify(o));}catch(e){}};
- const lobbyMsg=()=>({t:'lobby',host,inGame,diff:cfg.diff,fog:cfg.fog,size:cfg.size,p2p:!!opt.p2p,code:opt.code||null,clients:[...clients.entries()].map(([cid,c])=>({cid,name:c.name,slot:c.slot}))});
+ const lobbyMsg=()=>({t:'lobby',host,inGame,diff:cfg.diff,fog:cfg.fog,size:cfg.size,clients:[...clients.entries()].map(([cid,c])=>({cid,name:c.name,slot:c.slot}))});
  const broadcastLobby=()=>{const m=JSON.stringify(lobbyMsg());for(const c of clients.values())send(c,m);};
  const cleanName=(n,cid)=>{n=String(n||'').replace(/[^\w \-.']/g,'').trim().slice(0,16);return n||('Player '+cid);};
  function startGame(){
@@ -13,7 +14,7 @@ function createRoom(API,opt){opt=opt||{};const log=opt.log||(()=>{});
   const seed=Math.floor(Math.random()*1e9);API.setupGame(seed,slots,cfg.diff,cfg.fog,cfg.size);
   const md=API.mapData(),meta=API.playersMeta();inGame=true;cmdQ=[];stepN=0;acc=0;lastT=Date.now();
   for(const c of clients.values()){c.pid=c.slot;if(c.slot>=0)send(c,{t:'init',seed,...md,players:meta,you:c.slot,diff:cfg.diff,fog:cfg.fog});}
-  broadcastLobby();if(opt.timer)loop=opt.timer(tick,1000/60);else{const h=setInterval(tick,1000/60);loop=()=>clearInterval(h);}
+  broadcastLobby();{const h=setInterval(tick,1000/60);loop=()=>clearInterval(h);}
   log(`Game started: ${slots.map((s,i)=>s.human?s.name:'AI').join(' | ')} (difficulty ${cfg.diff}, fog ${cfg.fog?'on':'off'}, map ${cfg.size})`);}
  function tick(){const now=Date.now();acc+=Math.min(250,now-lastT);lastT=now;const stepMs=API.STEP*1000;
   while(acc>=stepMs){acc-=stepMs;
@@ -43,3 +44,4 @@ function createRoom(API,opt){opt=opt||{};const log=opt.log||(()=>{});
    return{cid,msg:m=>onMsg(cid,c,m),leave:()=>leave(cid)};},
   get inGame(){return inGame;},clients,lobby:lobbyMsg,broadcastLobby,
   close(){if(loop)loop();loop=null;inGame=false;clients.clear();}};}
+module.exports=createRoom;

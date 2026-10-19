@@ -9,6 +9,13 @@ const SHOTS=path.join(require('os').tmpdir(),'kom-shots');require('fs').mkdirSyn
  const br=await puppeteer.launch({executablePath:process.env.CHROME||'/usr/bin/google-chrome',headless:'new',args:['--no-sandbox']});
  const errs=[];const page=async tag=>{const p=await br.newPage();await p.setViewport({width:1280,height:800});p.on('pageerror',e=>errs.push(tag+': '+e.message));p.on('console',m=>{if(m.type()==='error')errs.push(tag+': '+m.text());});return p;};
  const p=await page('solo');await p.goto(FILE);await sleep(500);await p.evaluate(()=>localStorage.removeItem('kom_map'));
+ // ---- menu: Solo / Join LAN / Help only (no peer-to-peer); Join LAN from file:// explains that a server URL is needed
+ ok(await p.evaluate(()=>typeof p2pHost==='undefined'&&typeof RTCPeerConnection!=='undefined'&&!document.querySelector('script').textContent.includes('RTCPeerConnection')),'no peer-to-peer / WebRTC code left in the page');
+ await p.mouse.click(340+305+100,120+420+19);await sleep(200);
+ ok(await p.evaluate(()=>state==='menu'&&menuNote==='file'),'file://: Join LAN stays in the menu and shows that the host app / server URL is required');
+ await p.screenshot({path:path.join(SHOTS,'ui-menu-file.png')});
+ await p.mouse.click(340+197+100,120+466+19);await sleep(200);ok(await p.evaluate(()=>state==='menu'&&showHelp),'menu Help button opens the help');
+ await p.evaluate(()=>{showHelp=false;});await sleep(300);
  // ---- menu: map size buttons (panel 600x560 centred at 1280x800 -> x0=340,y0=120; size buttons at x0+250+i*88, y0+350)
  await p.mouse.click(340+250+88+40,120+350+19);await sleep(200);
  ok(await p.evaluate(()=>mapSize==='medium'&&MAP===144&&localStorage.getItem('kom_map')==='medium'),'menu: Medium map button selects 144x144 (preview regenerated, choice persisted)');
@@ -71,10 +78,18 @@ const SHOTS=path.join(require('os').tmpdir(),'kom-shots');require('fs').mkdirSyn
  ok(await p.evaluate(()=>sel[0].state==='build'&&sel[0].bld===window.__h),'right-clicking a damaged building with a peasant orders a repair');
  // help overlay lists the keys
  await p.evaluate(()=>{showHelp=true;});await sleep(150);await p.screenshot({path:path.join(SHOTS,'ui-help.png')});await p.evaluate(()=>{showHelp=false;});
+ // ---- page served by a plain static web server (like a Synology web folder): multiplayer explained, no endless "connecting"
+ {const http=require('http'),fs=require('fs');const st=http.createServer((q,r)=>{r.writeHead(200,{'Content-Type':'text/html'});r.end(fs.readFileSync(path.join(__dirname,'..','index.html')));}).listen(8134);
+  const q=await page('static');q.on('console',()=>{});await q.goto('http://127.0.0.1:8134/');
+  ok(await (async()=>{for(let i=0;i<60;i++){if(await q.evaluate(()=>wsFails>=2&&!netAvailable))return true;await sleep(200);}return false;})(),'static web folder: the page notices that no game server answers');
+  await q.screenshot({path:path.join(SHOTS,'ui-menu-static.png')});await q.close();st.close();
+  for(let i=errs.length-1;i>=0;i--)if(errs[i].startsWith('static:'))errs.splice(i,1);}   // expected websocket errors
  // ---- LAN lobby: host picks Large, both clients get the same 192x192 world
  const srv=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT:'8133',LOWLANDS_NO_UPDATE:'1'}});await sleep(900);
  const a=await page('A'),b=await page('B');await a.goto('http://127.0.0.1:8133/');await b.goto('http://127.0.0.1:8133/');await sleep(900);
- await a.evaluate(()=>{openServerLobby();netSend({t:'slot',slot:0});});await b.evaluate(()=>{openServerLobby();netSend({t:'slot',slot:2});});await sleep(400);
+ await a.bringToFront();await sleep(100);await a.mouse.click(340+305+100,120+420+19);await sleep(300);
+ ok(await a.evaluate(()=>state==='lobby'&&netKind==='server'&&lobby&&lobby.clients.length===2),'served page: Join LAN opens the server lobby');
+ await a.evaluate(()=>{netSend({t:'slot',slot:0});});await b.evaluate(()=>{openServerLobby();netSend({t:'slot',slot:2});});await sleep(400);
  await a.bringToFront();await sleep(100);
  // host clicks "Large" in the lobby (panel 640x560 -> x0=320,y0=120; buttons at x0+150+i*90, y0+404)
  await a.mouse.click(320+150+180+40,120+404+12);await sleep(800);

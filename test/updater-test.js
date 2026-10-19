@@ -37,7 +37,7 @@ const fakebin=path.join(TMP,'fakebin');fs.mkdirSync(fakebin);const opened=path.j
 const base={...process.env};for(const k of ['PORT','NO_BROWSER','LOWLANDS_NO_UPDATE','LOWLANDS_SUPERVISED','LOWLANDS_RESTARTED','LOWLANDS_OPEN_BROWSER'])delete base[k];
 let PORTN=8170;
 function app(name,env={},cmd){const dir=path.join(TMP,name);fs.cpSync(path.join(TMP,'old',FOLDER),dir,{recursive:true});const port=PORTN++;
- const p=spawn(cmd?path.join(dir,cmd):path.join(dir,BIN),[],{cwd:dir,detached:!WIN,windowsHide:true,env:{...base,PATH:fakebin+path.delimiter+process.env.PATH,...(WIN?{NO_BROWSER:'1'}:{}),PORT:String(port),STUN_PORT:'0',
+ const p=spawn(cmd?path.join(dir,cmd):path.join(dir,BIN),[],{cwd:dir,detached:!WIN,windowsHide:true,env:{...base,PATH:fakebin+path.delimiter+process.env.PATH,...(WIN?{NO_BROWSER:'1'}:{}),PORT:String(port),
   LOWLANDS_UPDATE_URL:`http://127.0.0.1:${fake.address().port}/releases/latest`,LOWLANDS_UPDATE_IDLE_MS:'1000',LOWLANDS_UPDATE_INTERVAL_MS:'1000',...env}});
  p.out='';p.stdout.on('data',d=>p.out+=d);p.stderr.on('data',d=>p.out+=d);p.dir=dir;p.port=port;p.t0=Date.now();p.stop=()=>{if(WIN){try{execFileSync('powershell',['-NoProfile','-Command',`Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | % { Stop-Process -Id $_.OwningProcess -Force }`],{stdio:'ignore'});}catch(e){}try{p.kill();}catch(e){}}else try{process.kill(-p.pid,'SIGKILL');}catch(e){}};return p;}
 const wait=async(p,re,ms)=>{const t=Date.now();while(!re.test(p.out)&&Date.now()-t<ms)await sleep(50);return re.test(p.out);};

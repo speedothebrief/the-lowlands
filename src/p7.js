@@ -117,18 +117,20 @@ function previewMap(){setMapSize(mapSize);genMap(Math.floor(Math.random()*1e9));
 let srvVer=null,srvVerFirst=null,srvUpd=null;   // server version (menu) / first one seen (reload after an update)
 let ws=null,conn=null,netKind=null,srvCid=null,srvLobby=null,netAvailable=false,lobby=null,myCid=null,snapRecvT=0,snapT=0,SNAP_DT=1/15,cmap=new Map();
 function myName(){try{return localStorage.getItem('kom_name')||'';}catch(e){return '';}}
-// netKind: 'server' (LAN server lobby over /ws) or 'p2p' (browser-hosted game over WebRTC); conn is the active transport
+// multiplayer = the Node server (host app or Docker): this page talks to it over the /ws websocket
+let menuNote=null,wsFails=0;   // wsFails: websocket attempts that never opened (e.g. page from a static web server)
+let menuNote2=null;   // message under the menu buttons (e.g. why Join LAN is unavailable)
 function netSend(o){if(conn)conn.send(JSON.stringify(o));}
 const wsConn={send:s=>{if(ws&&ws.readyState===1)ws.send(s);}};
-function openServerLobby(){p2pLeave(true);netKind='server';conn=wsConn;myCid=srvCid;lobby=srvLobby;state='lobby';}
+function openServerLobby(){netKind='server';conn=wsConn;myCid=srvCid;lobby=srvLobby;state='lobby';}
 function netConnect(){if(!/^https?:$/.test(location.protocol))return;try{ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');}catch(e){ws=null;return;}
- ws.onopen=()=>{netAvailable=true;wsConn.send(JSON.stringify({t:'hello',name:myName()}));};
+ ws.onopen=()=>{netAvailable=true;wsFails=0;ws.__open=true;wsConn.send(JSON.stringify({t:'hello',name:myName()}));};
  ws.onmessage=ev=>{let m;try{m=JSON.parse(ev.data);}catch(e){return;}if(m.t==='version'){onSrvVersion(m);return;}if(m.t==='welcome')srvCid=m.cid;if(m.t==='lobby')srvLobby=m;if(netKind==='server')handleNet(m);};
- ws.onclose=()=>{const srv=netKind==='server';const was=srv&&mode==='net';netAvailable=false;ws=null;srvLobby=null;if(srv){lobby=null;netKind=null;conn=null;}if(!srv){}else if(was){mode='local';state='menu';previewMap();msg('Disconnected from the LAN server.','#ff7a6a',me);}else if(state==='lobby'){state='menu';}setTimeout(netConnect,3000);};}
+ ws.onclose=()=>{if(ws&&!ws.__open)wsFails++;const srv=netKind==='server';const was=srv&&mode==='net';netAvailable=false;ws=null;srvLobby=null;if(srv){lobby=null;netKind=null;conn=null;}if(!srv){}else if(was){mode='local';state='menu';previewMap();msg('Disconnected from the LAN server.','#ff7a6a',me);}else if(state==='lobby'){state='menu';}setTimeout(netConnect,3000);};}
 // the server tells every page its version on connect (and when its update status changes). If the host app updated
 // itself and restarted, the reconnecting page sees a new version: reload it unless a game is running here.
 function onSrvVersion(m){srvVer=m.version;srvUpd=m;if(srvVerFirst==null){srvVerFirst=m.version;return;}if(m.version===srvVerFirst)return;
- const busy=mode==='net'||(state!=='menu'&&!(state==='lobby'&&netKind!=='p2p'))||netKind==='p2p';
+ const busy=mode==='net'||(state!=='menu'&&state!=='lobby');
  if(!busy){try{sessionStorage.setItem('kom_updated',m.version);}catch(e){}location.reload();}
  else{srvVerFirst=m.version;msg(`The game server was updated to v${m.version} — reload this page after your game.`,'#ffd27a',me);}}
 function handleNet(m){
@@ -185,18 +187,24 @@ function drawMenu(){uiBtns=[];tip=null;const [x,y]=overlayPanel(600,560);
  Object.keys(MAPSIZES).forEach((s,i)=>bigBtn(x+250+i*88,y+350,84,MAPSIZES[s].label,()=>{if(mapSize!==s){mapSize=s;try{localStorage.setItem('kom_map',s);}catch(e){}previewMap();}},mapSize===s));
  text('Map size: Small 96², Medium 144², Large 192² tiles',x+382,y+400,'#998','11px Georgia, serif','center');
  bigBtn(x+90,y+420,205,'▶  Solo Campaign',()=>{newGame();},true);
- if(netAvailable)bigBtn(x+305,y+420,205,'⚔  LAN Lobby',()=>{openServerLobby();},true);
- else{ctx.fillStyle='rgba(0,0,0,.3)';ctx.fillRect(x+305,y+420,205,38);text('LAN: run node server.js',x+407,y+444,'#887','13px Georgia, serif','center');}
+ const served=/^https?:$/.test(location.protocol);
+ bigBtn(x+305,y+420,205,'⚔  Join LAN',()=>{if(!served){menuNote='file';return;}menuNote=null;openServerLobby();},served);
+ bigBtn(x+197,y+466,205,'?  Help',()=>{showHelp=true;},false);
+ if(menuNote==='file'||!served){const a=menuNote==='file';
+  text(a?'Multiplayer needs the game server. This page was opened as a file.':'Multiplayer: start the host app (or the Docker server), then everyone opens',W/2,y+514,a?'#ffb08a':'#aa9','11px Georgia, serif','center');
+  text(a?'Start the host app (or Docker server) and open http://<server-ip>:8080 in the browser.':'http://<server-ip>:8080 in the browser and clicks Join LAN.',W/2,y+527,a?'#ffb08a':'#aa9','11px Georgia, serif','center');}
+ else if(!netAvailable&&wsFails>=2){text('No game server answers at this address (a static web folder cannot run multiplayer).',W/2,y+514,'#ffb08a','11px Georgia, serif','center');
+  text('Start the host app or the Docker server and open http://<server-ip>:8080 instead.',W/2,y+527,'#ffb08a','11px Georgia, serif','center');}
+ else text(netAvailable?'Connected to the game server — click Join LAN to pick a kingdom.':'Connecting to the game server…',W/2,y+516,netAvailable?'#aa9':'#ffd27a','11px Georgia, serif','center');
  {const upd=srvUpd&&srvUpd.latest&&/available|downloaded|installing|failed/.test(srvUpd.update||'');
   text('v'+APP_VERSION+(srvVer?`  ·  server v${srvVer}`:''),x+590,y+16,'#887','11px Georgia, serif','right');
-  if(upd)text(srvUpd.selfUpdate?`Server update v${srvUpd.latest}: ${srvUpd.update==='failed'?'failed — see host window':'installs when no game is running'}`:`Server update v${srvUpd.latest} available — rebuild/pull the server`,W/2,y+556,'#ffd27a','11px Georgia, serif','center');
+  if(upd)text(srvUpd.selfUpdate?`Server update v${srvUpd.latest}: ${srvUpd.update==='failed'?'failed — see host window':'installs when no game is running'}`:`Server update v${srvUpd.latest} available — rebuild/pull the server`,W/2,y+557,'#ffd27a','10px Georgia, serif','center');
   let u=null;try{u=sessionStorage.getItem('kom_updated');}catch(e){}if(u&&u===srvVer)text('✓ updated to v'+u,x+10,y+16,'#9d9','11px Georgia, serif');}
- text('H: help   B: build menu   P/Esc: pause   M: mute   WASD/arrows/edges/right-drag: pan   Wheel: zoom',W/2,y+540,'#998','12px Georgia, serif','center');
- bigBtn(x+90,y+466,205,'⇄  Host (peer-to-peer)',()=>{p2pHost();},false);bigBtn(x+305,y+466,205,'⇄  Join (peer-to-peer)',()=>{p2pJoinStart();},false);
- text(netAvailable?'Connected to LAN server — open the lobby, or host/join a browser peer-to-peer game.':'Multiplayer: Host/Join peer-to-peer in the browser (no server), or run node server.js.',W/2,y+516,'#aa9','12px Georgia, serif','center');}
-function drawLobby(){uiBtns=[];tip=null;const [x,y]=overlayPanel(640,560);const pp=netKind==='p2p';
- text(pp?'Peer-to-peer Lobby':'LAN Lobby',W/2,y+48,'#ffe7a8','bold 30px Georgia, serif','center');
- if(!lobby||(!pp&&!netAvailable)){text('Connecting…',W/2,y+120,'#ddd','16px Georgia, serif','center');bigBtn(x+220,y+500,200,'Back',()=>{p2pLeave(true);state='menu';});return;}
+ text('H: help   B: build menu   P/Esc: pause   M: mute   WASD/arrows/edges/right-drag: pan   Wheel: zoom',W/2,y+545,'#998','11px Georgia, serif','center');
+}
+function drawLobby(){uiBtns=[];tip=null;const [x,y]=overlayPanel(640,560);
+ text('LAN Lobby',W/2,y+48,'#ffe7a8','bold 30px Georgia, serif','center');
+ if(!lobby||!netAvailable){text(wsFails>=2?'No game server answers at this address.':'Connecting to the game server…',W/2,y+120,'#ddd','16px Georgia, serif','center');if(wsFails>=2)text('Multiplayer needs the host app or the Docker server: open http://<server-ip>:8080.',W/2,y+150,'#ffb08a','13px Georgia, serif','center');bigBtn(x+220,y+500,200,'Back',()=>{state='menu';});return;}
  const host=lobby.host===myCid;const meC=lobby.clients.find(c=>c.cid===myCid)||{};
  text(`You are "${meC.name||'?'}"${host?' (host)':''}`,x+30,y+86,'#ddd','14px Georgia, serif');
  smallBtn(x+430,y+70,180,24,'Change name',()=>{const n=(prompt('Your name:',meC.name||'')||'').trim().slice(0,16);if(n){try{localStorage.setItem('kom_name',n);}catch(e){}netSend({t:'name',name:n});}},{t:'Set your display name'});
@@ -211,21 +219,14 @@ function drawLobby(){uiBtns=[];tip=null;const [x,y]=overlayPanel(640,560);const 
   text('Map size:',x+30,y+420,'#ffe7a8','bold 13px Georgia, serif');Object.keys(MAPSIZES).forEach((s,i)=>smallBtn(x+150+i*90,y+404,84,24,MAPSIZES[s].label,()=>netSend({t:'cfg',diff:lobby.diff,fog:lobby.fog,size:s}),{t:'Map size',d:{small:'96×96 tiles (1×)',medium:'144×144 tiles (1.5×)',large:'192×192 tiles (2×)'}[s]},(lobby.size||'small')===s));
   const canStart=lobby.clients.some(c=>c.slot>=0);bigBtn(x+170,y+438,300,canStart?'▶  Start Game':'Take a slot to start',()=>{if(canStart)netSend({t:'start'});},canStart);}
  else text(`Waiting for the host to start…  (AI: ${DIFF[lobby.diff].label}, fog ${lobby.fog?'on':'off'}, map ${(MAPSIZES[lobby.size]||MAPSIZES.small).label})`,W/2,y+400,'#cdbb90','14px Georgia, serif','center');
- if(pp&&p2p&&p2p.role==='host'){
-  if(p2p.code){text('ROOM CODE',x+560,y+28,'#cdbb90','bold 11px Georgia, serif','center');text(p2p.code,x+560,y+60,'#ffe7a8','bold 30px monospace','center');}
-  const si=sigInfo();text(p2p.code?`Players choose Join (peer-to-peer) and type ${p2p.code}${si&&!si.dflt?` (signaling server ${si.host})`:''}. Empty slots are AI; the AI takes over anyone who disconnects.`
-   :p2p.sigState==='connecting'?'Contacting the signaling server for a room code…':`No signaling server${si?' reachable at '+si.host:''} — use Invite (copy-paste codes), or set a server.`,W/2,y+496,p2p.code?'#bfe6a0':'#ffd27a','12px Georgia, serif','center');
-  smallBtn(x+30,y+510,200,26,'➕ Invite player (code)',()=>{p2pInvite();},{t:'Room code, or copy-paste codes when there is no signaling server'});
-  smallBtn(x+400,y+510,210,26,'Signaling server…',()=>{const v=prompt('Signaling server (the machine running node server.js), e.g. 192.168.1.20:8080 or wardenfam.com:8080. Empty = the server this page came from.',sigAddr());if(v!=null&&!sigSave(v))alert('Use an address like 192.168.1.20:8080');},{t:'Where room codes are registered: '+(si?si.host:'none')});}
- else text(pp?'Connected peer-to-peer to the host. Empty slots are played by the AI.':'Others join by opening this same URL on their computer. Empty slots are played by the AI.',W/2,y+480,'#998','12px Georgia, serif','center');
- smallBtn(x+270,y+510,100,26,'Back',()=>{if(pp)p2pLeave(true);state='menu';},{t:pp&&p2p&&p2p.role==='host'?'Close the room':'Return to main menu'});}
+ text('Others join by opening this same address (http://<server>:8080) and clicking Join LAN. Empty slots are played by the AI.',W/2,y+480,'#998','12px Georgia, serif','center');
+ smallBtn(x+270,y+510,100,26,'Back',()=>{state='menu';},{t:'Return to main menu'});}
 function drawPause(){uiBtns=[];tip=null;const net=mode==='net';const host=net&&lobby&&lobby.host===myCid;const [x,y]=overlayPanel(360,300);
  text(net?'Game Menu':'Paused',W/2,y+44,'#ffe7a8','bold 28px Georgia, serif','center');if(net)text('(multiplayer keeps running)',W/2,y+66,'#aa9','12px Georgia, serif','center');
  bigBtn(x+60,y+80,240,'Resume',()=>{state='play';},true);bigBtn(x+60,y+128,240,'Help',()=>{state='play';showHelp=true;});
  if(!net){bigBtn(x+60,y+176,240,'Restart',()=>{newGame();});bigBtn(x+60,y+224,240,'Main Menu',()=>{state='menu';previewMap();});}
  else if(host)bigBtn(x+60,y+176,240,'End game → lobby (all)',()=>netSend({t:'tolobby'}));
  else bigBtn(x+60,y+176,240,'Surrender',()=>{if(confirm('Surrender your kingdom?'))netSend({t:'surrender'});});
- if(net&&netKind==='p2p')bigBtn(x+60,y+224,240,host?'Close room (ends game)':'Leave game',()=>{p2pLeave(true);mode='local';state='menu';previewMap();});
  AU.panel(W/2-130,Math.min(H-134,y+310));}
 function drawEnd(){uiBtns=[];tip=null;const won=state==='won';const [x,y]=overlayPanel(500,330);
  text(won?'VICTORY':'DEFEAT',W/2,y+60,won?'#ffe070':'#ff7a6a','bold 44px Georgia, serif','center');
@@ -248,7 +249,7 @@ function frame(now){const dt=Math.min(.1,(now-last)/1000);last=now;
  if(mode==='net'&&inGame())netFrame(dt);
  if(inGame()){vis=visMap[me]||vis;checkOutcome();pings=pings.filter(p=>time-p.t<20);if(endShown&&(state==='won'||state==='lost')){}}
  updateCamera(dt);
- if(state==='menu'||state==='lobby'){cam.x+=Math.sin(now/9000)*0.3;renderWorld(true);if(state==='menu')drawMenu();else drawLobby();AU.panel(16,H-144);drawTip();}
+ if(state==='menu'||state==='lobby'){cam.x+=Math.sin(now/9000)*0.3;renderWorld(true);if(state==='menu'){if(showHelp)drawHelp();else drawMenu();}else drawLobby();AU.panel(16,H-144);drawTip();}
  else{renderWorld(false);drawUI();if(showHelp)drawHelp();else if(state==='paused')drawPause();else if((state==='won'||state==='lost')&&!endShown)drawEnd();}
  }catch(err){console.error(err);window.__lastError=String(err&&err.stack||err);}
  requestAnimationFrame(frame);}

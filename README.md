@@ -4,8 +4,27 @@ A real-time strategy game drawn with canvas on a 2.5D isometric map. You can pla
 solo against 3 AI kingdoms or with friends over your LAN. The game itself is the
 single file `index.html` and has no external dependencies.
 
+**Multiplayer in one sentence:** one computer runs the game server, either the
+double-click **host app** or the **Docker container** (e.g. on a Synology), and everyone
+opens **`http://<server>:8080`** in a browser and clicks **Join LAN**.
+
+Multiplayer needs that Node server: the lobby, the authoritative simulation and the websocket
+all live there. Opening `index.html` as a file, or putting it in a static web folder (Synology
+Web Station / the `web` share, GitHub Pages…), only gives you solo play. The menu says so when no
+server answers.
+
 ## Solo play
 Open `index.html` in any modern browser (double-click works), pick difficulty, fog and **map size**, then click **Solo Campaign**.
+
+## Multiplayer: pick one way to run the server
+1. **Host app (easiest).** Download it from Releases and double-click it on any Mac, Windows or
+   Linux computer. See [Host a game: double-click](#host-a-game-double-click-no-node-install-needed).
+2. **Docker, e.g. on a Synology NAS.** Always on, no computer needs to stay awake. See
+   [Hosting on Synology](#hosting-on-synology-or-any-docker-host).
+
+Then every player opens `http://<server-ip>:8080`, e.g. `http://192.168.1.20:8080`, clicks
+**Join LAN**, takes a kingdom, and the host (the first player to connect) clicks **Start Game**.
+Developers can also run `node server.js` (see [LAN multiplayer](#lan-multiplayer)).
 
 ## Host a game: double-click (no Node install needed)
 Download the host app for your computer from the GitHub **Releases** page:
@@ -28,8 +47,7 @@ opens the game. Keep the window open while you play, and close it to stop the ho
 
 The host uses port 8080. If 8080 is busy, for example because a second copy is running, it
 picks the next free port and shows it. Other players need nothing installed, just a browser on
-the same network. The same host is also the signaling and STUN server for peer-to-peer room
-codes.
+the same network. They open the address and click **Join LAN**.
 
 **macOS Gatekeeper (unsigned app).** The app has only an ad-hoc signature, not an Apple
 Developer ID, so macOS blocks it on first launch. Use one of these:
@@ -55,8 +73,7 @@ When the firewall asks, allow **private networks**.
 - **Installing:** when a newer version exists, the app downloads the zip for your computer
   (Mac arm64/x64, Windows, Linux). It checks the size against GitHub and the SHA-256 against the
   release's `SHA256SUMS` file. It also test-runs the new program (`--version`) before using it.
-- **It never interrupts a game.** It installs only once no LAN game is running, and no
-  peer-to-peer game has been relayed through the host in the last 2 minutes.
+- **It never interrupts a game.** It installs only once no game has been running for 30 s.
 - **Swap and restart:** it replaces its own program file, then restarts in the same window
   (Windows: a new console window), on the same port, and prints the banner again.
 - **Windows:** a running `.exe` can't be overwritten, so it is renamed to `….exe.old`, the new
@@ -85,7 +102,7 @@ every `v*` tag or published release:
 You can also start it by hand: Actions → *Host apps* → *Run workflow*.
 
 ## LAN multiplayer
-Requires Node.js 18 or newer, or use the double-click host app above.
+This section is for running from source with Node.js 18 or newer. Everyone else should use the host app or Docker.
 
 ```bash
 cd the-lowlands
@@ -101,7 +118,7 @@ The Lowlands LAN server running.
   LAN:    http://192.168.1.23:8080/   <- share this with other players
 ```
 
-1. Every player opens the LAN URL in a browser and clicks **LAN Lobby**.
+1. Every player opens the LAN URL in a browser and clicks **Join LAN**.
 2. Each player clicks **Take** on a kingdom (Avalon, Ravenmoor, Eldmark, Stonehold).
    **Change name** sets your display name.
 3. The host (the first person to connect) picks the AI difficulty, fog of war and map size, then clicks **Start Game**.
@@ -128,113 +145,86 @@ AI kingdoms surrender when their Keep is destroyed, or when their army and econo
 are crushed compared to whoever attacked them. The winner of a surrender takes half of the
 loser's stockpile as tribute.
 
-## Peer-to-peer multiplayer (in the browser, no server needed)
-The host's browser runs the authoritative simulation (the same code as `server.js`) and the
-same lobby/game loop. The other players connect directly to the host over WebRTC DataChannels.
-This works when `index.html` is opened from disk (`file://`) as well as over http.
-
-### Main flow: a short room code
-If a **signaling server** is reachable (any running `node server.js`, e.g. the Docker container on
-your Synology), joining takes only a short code:
-
-1. **Host:** Main menu → **Host (peer-to-peer)**. The lobby shows a **room code** of 4 easy
-   letters in the top-right corner, e.g. `FUTU`. The letters come from `ACDEFHJKMNPRTUVWXY`, with no look-alikes like
-   O/0, I/1/L, S/5, B/8, Z/2. A 5-letter code is used only if the 4-letter ones run short.
-2. **Join:** Main menu → **Join (peer-to-peer)**, type the code (lower case is fine), press Enter.
-   That's it. The server only passes the WebRTC offer/answer along; the game then runs
-   peer-to-peer in the host's browser.
-
-**Signaling server address.** By default it is the server that served the page. To use a page
-opened from disk (`file://`) or from other hosting, enter the address once in the *Signaling
-server* field of the Join dialog, or with the lobby's *Signaling server…* button. Examples:
-`192.168.1.20:8080`, `wardenfam.com:8080` or `https://lowlands.example`. The address is saved
-in localStorage. `ws://` or `wss://` is chosen automatically: wss for https pages or
-`https://` / `wss://` addresses. A browser on an https page can only reach a wss server. The
-relay accepts WebSocket connections from any origin, including `file://` pages (Origin `null`).
-`GET /sig/info` is a CORS-enabled probe.
-
-**Relay limits.** The relay stays lightweight: 64 KB max message size, at most 500 rooms, and
-rooms expire after 6 h (`SIG_ROOM_TTL_MS`) or as soon as the host disconnects. Expiry only stops
-new joins; a game already running is unaffected. Dead sockets are pinged and dropped. Ten wrong
-codes on one connection close it.
-
-### Fallback: copy-paste codes (no signaling server)
-If no signaling server is reachable, for example two laptops with only `index.html` and no
-server, the players swap two codes by hand. This works from `file://` too.
-1. **Host:** Main menu → **Host (peer-to-peer)** → **Invite player (code)**. Copy the
-   **invite code** (about 500 characters) and send it, e.g. by chat or e-mail. A phone can
-   scan the QR code instead.
-2. **Join:** Main menu → **Join (peer-to-peer)** → *No signaling server? Exchange codes…*.
-   Paste the invite code, click **Create answer**, and send the **answer code** back the same way.
-3. **Accept:** The host pastes the answer code into the invite dialog and clicks **Connect**.
-   Repeat for each extra player.
-
-Codes are the WebRTC offer/answer compressed with deflate-raw and base64url. Each invite has its
-own id, so an answer always goes to the right pending invite. The lobby is the same either way:
-pick slots, change names, and the host sets AI difficulty, fog of war and map size. Empty slots
-are played by the AI. The host clicks *Start*. Clients send commands and get snapshots at
-about 15 Hz. If a player disconnects, the AI takes over their kingdom.
-
-**Relay.** With `server.js` the server only relays the WebRTC offer/answer over a `/sig`
-websocket. The game itself runs peer-to-peer in the host's browser. The classic
-server-hosted LAN lobby keeps working as before.
-
-**Networking notes (Brave and other privacy browsers).** Brave's default *WebRTC IP handling
-policy* hides the computer's local addresses from WebRTC. Without a STUN server the invite and
-answer codes then contain **no network addresses at all**, and the joiner sits at "connecting"
-forever, even on the same LAN. (This was the cause of the old "never connects" bug: STUN used to
-be off by default.) So now:
-- **STUN is on by default.** Public STUN (Google, Cloudflare) is used, plus `server.js`'s own tiny
-  STUN responder on **UDP 3478** when a signaling server is in use. The server's responder also
-  works on a LAN with no internet. Untick *use STUN* only for strictly offline LANs where the
-  browser exposes local addresses. A custom server can be set with
-  `localStorage.kom_stun_url = 'stun:host:port'`.
-- **Diagnostics.** The dialogs show ICE gathering and connection state, plus how many LAN, mDNS,
-  STUN and TURN addresses each side has. If none were gathered, a warning says so and advises:
-  Brave → `brave://settings/privacy` → *WebRTC IP handling policy* → **Default** (or *Default
-  public and private interfaces*). Also check for Wi-Fi *client/AP isolation*.
-- **Checksummed codes.** Codes start with `LL2` and end with `.<crc32>`. A truncated or mangled
-  paste gives a clear "incomplete or damaged (N characters received)" error.
-- **Automatic relay fallback.** If WebRTC hasn't connected about 10 s after the answer, and the
-  host has a signaling server, the host relays that player's game traffic through the server's
-  websocket instead. This works for room codes and also for copy-paste codes: the invite carries
-  the room code, so the joiner stands by on the server. The game, lobby, commands and AI takeover
-  all work the same. The server only forwards messages.
-
-Without TURN, players behind strict NATs on different networks may still need the relay. The host's simulation is
-driven by a Worker timer, so it keeps running when the host's tab is in the background. If the
-host closes their tab, the game ends for everyone. Codes are compressed (deflate-raw +
-base64url, about 500 characters). The QR encoder is built in, with no dependencies.
-
 ## Hosting on Synology (or any Docker host)
 The repo ships with a `Dockerfile` (node:20-alpine, production dependencies only, runs as the
-non-root `node` user, exposes 8080 and 3478/udp) and a `docker-compose.yml` (`8080:8080`, `3478:3478/udp` for the
-built-in STUN responder, `restart: unless-stopped`). Set `STUN_PORT=0` to turn the STUN responder off.
-The same container is also a **signaling server** for peer-to-peer games: in the Join dialog, set it as the *Signaling server* (e.g. `192.168.1.20:8080`), and players then join by short room code even from a downloaded `index.html`.
-Anywhere with Docker:
+non-root `node` user, exposes TCP 8080) and a `docker-compose.yml` (`8080:8080`,
+`restart: unless-stopped`). Only one port is needed, and it carries the page and the game
+websocket (`/ws`).
+
+Anywhere with Docker and compose:
 
 ```bash
 docker compose up -d --build     # then open http://<host-ip>:8080/
 ```
 
-**Updating the Docker / Synology server** means rebuilding (or pulling) the image:
-`git pull && docker compose up -d --build`. In Container Manager, *Project → Action → Build* after
-updating the folder. The server never replaces itself. It checks GitHub at startup and every
-4 hours, logs `Update available: v…` and shows "Server update v… available — rebuild/pull the
-server" in the browsers' main menu. Set `LOWLANDS_NO_UPDATE=1` in `docker-compose.yml` to turn the
-check off. After a rebuild, open browser tabs reconnect, notice the new version and reload.
+> **Synology's static web hosting cannot run multiplayer.** Putting `index.html` in the `web`
+> share or in Web Station only serves the page, so solo play works and **Join LAN** reports that
+> no game server answers. Multiplayer needs the Node server, i.e. this Docker container (or the
+> Node.js package, see Option C).
 
-**Option A — Container Manager (DSM 7.2+)**
-1. Copy the `the-lowlands` folder to the NAS, e.g. `/volume1/docker/the-lowlands`
-   (File Station, or `git clone` over SSH).
-2. Open **Container Manager → Project → Create**. Name it `the-lowlands`, set the path to that folder,
-   and choose *Use existing docker-compose.yml*.
-3. Finish the wizard. It builds the image and starts the container; it restarts automatically after reboots.
-4. Players open **`http://<synology-ip>:8080/`** in a browser and click **LAN Lobby**.
-   The server log (Container Manager → Container → the-lowlands → Log) prints the container's internal
-   IP. Ignore that and use the NAS's own LAN IP.
+### Option A — the old **Docker** package (DSM 6.x / 7.0–7.1)
+This package has no *Project* tab, only **Overview, Registry, Image, Container, Network, Log**.
+So build the image over SSH, then launch it from the **Image** tab.
 
-**Option B — no Docker (Node.js package)**
+1. **Turn on SSH**: Control Panel → Terminal & SNMP → *Enable SSH service* (port 22). You can
+   turn it off again when you're done.
+2. **Put the files on the NAS.** In File Station, open the `docker` shared folder (the Docker
+   package creates it) and make a folder `the-lowlands`. Upload the repo into it: on GitHub,
+   *Code → Download ZIP*, unzip on your computer, then upload the contents. You need at least
+   `Dockerfile`, `package.json`, `package-lock.json`, `index.html`, `server.js`, `room.js` and
+   `host/updater.js`. The result should be `/volume1/docker/the-lowlands/Dockerfile`, etc.
+   (With git: `git clone https://github.com/speedothebrief/the-lowlands.git /volume1/docker/the-lowlands`.)
+3. **Build the image** over SSH (Terminal on macOS/Linux, PowerShell or PuTTY on Windows):
+   ```bash
+   ssh your-admin-user@192.168.1.20          # your NAS's IP
+   cd /volume1/docker/the-lowlands
+   sudo docker build -t the-lowlands .        # enter your password again; takes a minute or two
+   ```
+   The NAS needs internet access to pull `node:20-alpine`, which is available for x86-64 and
+   ARM (arm64/armv7) models.
+4. **Launch it from the Docker app.**
+   - **Image** tab → select `the-lowlands:latest` → **Launch**.
+   - Container name: `the-lowlands`.
+   - **Advanced Settings**:
+     - Tick **Enable auto-restart**.
+     - **Port Settings**: set *Local Port* `8080` → *Container Port* `8080`, type TCP. Replace
+       "Auto" with 8080, or the NAS picks a random port.
+     - Optional, under *Environment*: add `LOWLANDS_NO_UPDATE` = `1` to skip the update check.
+   - Apply → Next → **Done** (leave "Run this container after the wizard is finished" ticked).
+   - On DSM 7.0/7.1 the same options are spread over the wizard pages: General Settings
+     (auto-restart), Port Settings, Environment.
+
+   Same thing from SSH instead of the wizard:
+   ```bash
+   sudo docker run -d --name the-lowlands --restart unless-stopped -p 8080:8080 the-lowlands
+   ```
+5. **Firewall:** if the DSM firewall is on (Control Panel → Security → Firewall → Edit Rules),
+   add *Allow* for **TCP 8080**, source = your LAN subnet (e.g. 192.168.1.0/24).
+6. **Play:** everyone opens **`http://<nas-ip>:8080/`** and clicks **Join LAN**.
+   The log (Container → the-lowlands → Details → Log) shows the container's internal 172.x IP.
+   Ignore it and use the NAS's own LAN IP.
+
+**Updating (old Docker package):** upload the new files, or `git pull` in the folder, then over
+SSH:
+```bash
+cd /volume1/docker/the-lowlands && sudo docker build -t the-lowlands .
+sudo docker rm -f the-lowlands
+sudo docker run -d --name the-lowlands --restart unless-stopped -p 8080:8080 the-lowlands
+```
+Alternatively, after the build, stop and delete the container in the Container tab, then
+Image → Launch again.
+
+### Option B — **Container Manager** (DSM 7.2+)
+1. Copy the repo folder to `/volume1/docker/the-lowlands` (as in step 2 above).
+2. **Container Manager → Project → Create**. Name it `the-lowlands`, set the path to that folder,
+   and choose *Use existing docker-compose.yml*. Finish the wizard. It builds the image, starts
+   the container and restarts it after reboots.
+3. Firewall and playing are as in steps 5–6 above.
+
+To update, replace the files, then **Project → the-lowlands → Action → Build** (or
+`sudo docker compose up -d --build` in the folder).
+
+### Option C — no Docker (Node.js package)
 Install **Node.js v20** from the Package Center, then over SSH:
 ```bash
 cd /volume1/docker/the-lowlands && npm ci --omit=dev && node server.js
@@ -243,13 +233,28 @@ To keep it running after boot, add a *Triggered Task* (Control Panel → Task Sc
 Boot-up, user that owns the folder) with the command
 `cd /volume1/docker/the-lowlands && /usr/local/bin/node server.js`.
 
-**Firewall:** if the DSM firewall is on (Control Panel → Security → Firewall), add an allow rule for
-TCP port 8080 from your LAN subnet. To use another port, change the left side of the mapping,
-e.g. `"9090:8080"`, and browse to `:9090`.
+### Update notice
+The server never replaces itself in Docker. It checks GitHub at startup and every 4 hours,
+logs `Update available: v…`, and shows "Server update v… available — rebuild/pull the server" in
+the browsers' main menu. Set `LOWLANDS_NO_UPDATE=1` to turn the check off. After a rebuild, open
+browser tabs reconnect, notice the new version and reload.
 
-**No reverse proxy needed:** the page and the WebSocket (`/ws`) share the same HTTP port, so plain
-`http://<synology-ip>:8080/` works directly on the LAN. If you do put it behind the DSM reverse proxy,
-enable the WebSocket headers (Custom Header → Create → WebSocket) for that rule.
+### Optional: a name like wardenfam.com (reverse proxy)
+You don't need a reverse proxy on the LAN: `http://<nas-ip>:8080/` works directly. To use a
+domain with HTTPS:
+- **Where:** DSM 7: Control Panel → Login Portal → Advanced → **Reverse Proxy**. DSM 6:
+  Control Panel → Application Portal → Reverse Proxy. Click **Create**.
+- **Source:** HTTPS, hostname `lowlands.wardenfam.com` (or `wardenfam.com`), port 443.
+- **Destination:** HTTP, `localhost`, port 8080.
+- **WebSocket headers:** Custom Header → Create → **WebSocket**. Without them the page loads
+  but Join LAN never connects.
+- **Certificate:** Control Panel → Security → Certificate (Let's Encrypt) for that hostname.
+
+Players then open `https://lowlands.wardenfam.com/`; the page switches to `wss://` by itself.
+Reaching it from outside your home also needs the router to forward TCP 443 to the NAS.
+
+**Note:** the game has no passwords. Anyone who can reach the address can join a lobby, so
+only expose it publicly if you're fine with that.
 
 ## Map sizes
 | Size | Tiles | Notes |
@@ -372,20 +377,12 @@ node test/updater-test.js            # self-updater against a local fake GitHub 
                                      # offline/hanging/rate-limited checks, LOWLANDS_NO_UPDATE, size + SHA-256, no restart mid-game,
                                      # swap + restart on the same port, browser tab reload, start.sh restart loop
 node test/host-app-test.js [binary]   # packaged host app (after node host/build.js): banner + LAN URLs, browser launch,
-                                     # HTTP, /ws, /sig, port-in-use fallback
-CHROME=/usr/bin/google-chrome node test/p2p-test.js     # (optional: npm i --no-save jsqr, or JSQR=path, for the QR decode check)
-                                                        # REAL WebRTC between two Chrome pages via server.js's STUN responder:
-                                                        # reproduces the no-STUN zero-address bug + Brave warning, checksum errors,
-                                                        # manual codes (file://) + QR decode,
-                                                        # lobby, chunked init, 15 Hz snapshots, commands, disconnect → AI; room code,
-                                                        # relay fallback after ~10 s when WebRTC is blocked (room code and copy-paste),
-                                                        # file:// pages using a saved signaling server by short code, room expiry
+                                     # HTTP, /ws, port-in-use fallback
 ```
 
 ## Source layout
 `index.html` is built from the files in `src/`. Run `sh src/build.sh` to rebuild it.
 `p1–p3, p8` contain the shared simulation: rules, map gen, A*, combat, construction, garrison, AI, commands and snapshots.
-`p8room.js` holds the lobby and authoritative game loop, shared by `server.js` and the browser P2P host.
-`p10qr.js` is the QR encoder and `p10p2p.js` the WebRTC peer-to-peer layer.
+`room.js` (repo root, server only) holds the lobby and authoritative game loop used by `server.js`.
 `p0client, p4–p7` contain rendering, UI, input and networking. `p9audio.js` is the WebAudio engine.
 `host/launcher.js` is the entry point of the double-click host apps (banner, browser launch, keeps the window open); `host/updater.js` checks GitHub releases and performs the self-update; `host/build.js` packages the apps into `dist/` (plus `SHA256SUMS`).

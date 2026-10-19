@@ -43,9 +43,7 @@ S.banner=(port,ips)=>{const local=`http://localhost:${port}/`;const U=S.updater;
    line('Other players on your network open (any of):')];
   for(const ip of ips)out.push(line(`    »  http://${ip}:${port}/`));
   if(!ips.length)out.push(line('    (no network found — only this computer can play)'));
-  out.push(line(),line('Peer-to-peer room codes also use this as signaling server:'));
-  for(const ip of ips)out.push(line(`    ${ip}:${port}`));
-  out.push(line(),line(`This computer: ${local}`+(process.env.LOWLANDS_OPEN_BROWSER==='0'?'':'  (opening your browser…)')),line(),
+   out.push(line(),line(`This computer: ${local}`+(process.env.LOWLANDS_OPEN_BROWSER==='0'?'':'  (opening your browser…)')),line(),
    line('Keep this window open while playing. Close it to stop.'),'  ╚'+'═'.repeat(W+2)+'╝','');
   console.log(out.join('\n'));
   if(S.fellBack)console.log(`  Note: port 8080 was busy, so port ${port} is used.\n`);
