@@ -5,6 +5,16 @@ const puppeteer=require('puppeteer-core');const path=require('path');const {spaw
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));let fails=0;const ok=(c,m)=>{console.log((c?'PASS ':'FAIL ')+m);if(!c)fails++;};
 const FILE='file://'+path.join(__dirname,'..','index.html');
 const SHOTS=path.join(require('os').tmpdir(),'kom-shots');require('fs').mkdirSync(SHOTS,{recursive:true});
+
+// zoomed-out rendering regression (v1.2.1): record where drawUnit actually draws a unit, frame by frame
+async function trackDrawn(pg,ms,order){return pg.evaluate(async(ms,order)=>{const u=units.find(v=>v.owner===me&&v.type==='peasant'&&!v.inG);if(!u)return null;
+  if(order){const k=players[me].keep;issue({t:'move',ids:[u.id],x:clamp(k.x+order[0],1,MAP-2),y:clamp(k.y+order[1],1,MAP-2)});}
+  const orig=drawUnit,seen=[];window.drawUnit=function(v,icon){if(v===u&&!icon){const t=ctx.getTransform(),q=iso(v.x,v.y),d=window.devicePixelRatio||1;seen.push([(t.a*q[0]+t.c*q[1]+t.e)/d,(t.b*q[0]+t.d*q[1]+t.f)/d]);}return orig.apply(this,arguments);};
+  const w0=worldToScreen(u.x,u.y);let n=0,rt=0;const t0=performance.now();const R=renderWorld;window.renderWorld=function(m){const a=performance.now();R(m);rt+=performance.now()-a;};
+  await new Promise(res=>{const f=()=>{n++;if(performance.now()-t0<ms)requestAnimationFrame(f);else res();};requestAnimationFrame(f);});
+  window.drawUnit=orig;window.renderWorld=R;const w1=worldToScreen(u.x,u.y);const last=seen[seen.length-1]||[NaN,NaN];
+  const distinct=new Set(seen.map(p=>Math.round(p[0])+','+Math.round(p[1]))).size;
+  return{z:cam.z,frames:n,drawn:seen.length,distinct,movedPx:Math.hypot(w1[0]-w0[0],w1[1]-w0[1]),lastErr:Math.hypot(last[0]-w1[0],last[1]-w1[1]),renderMs:rt/n};},ms,order);}
 (async()=>{
  const br=await puppeteer.launch({executablePath:process.env.CHROME||'/usr/bin/google-chrome',headless:'new',args:['--no-sandbox']});
  const errs=[];const page=async tag=>{const p=await br.newPage();await p.setViewport({width:1280,height:800});p.on('pageerror',e=>errs.push(tag+': '+e.message));p.on('console',m=>{if(m.type()==='error')errs.push(tag+': '+m.text());});return p;};
@@ -77,6 +87,16 @@ const SHOTS=path.join(require('os').tmpdir(),'kom-shots');require('fs').mkdirSyn
  const hs=await p.evaluate(()=>{const s=worldToScreen(window.__h.x,window.__h.y);return[s[0],s[1]-12];});await p.mouse.click(hs[0],hs[1],{button:'right'});
  ok(await p.evaluate(()=>sel[0].state==='build'&&sel[0].bld===window.__h),'right-clicking a damaged building with a peasant orders a repair');
  // help overlay lists the keys
+ // ---- zoomed OUT: units must keep moving on screen (bug: they looked frozen until zooming back in)
+ {await p.evaluate(()=>{showHelp=false;state='play';fogOn=true;const k=players[me].keep;centerOn(k.x,k.y);cam.z=1;clampCam();});await sleep(300);
+  const near=await trackDrawn(p,1500,null);
+  await p.evaluate(()=>{cam.z=0.45;clampCam();});await sleep(300);   // minimum zoom
+  const far=await trackDrawn(p,3000,[7,6]);
+  ok(far&&far.drawn>=far.frames*0.9&&far.distinct>20&&far.movedPx>10&&far.lastErr<1.5,'zoomed out (0.45×): a walking unit is redrawn every frame at its current position '+JSON.stringify(far));
+  ok(far&&near&&far.renderMs<Math.max(4,near.renderMs*4),`zoomed-out frames stay cheap on the Large map (render ${far&&far.renderMs.toFixed(1)} ms vs ${near&&near.renderMs.toFixed(1)} ms at 1×; was ~11× before)`);
+  const fg=await p.evaluate(()=>{fogLayer();const d=fogCtx.getImageData(0,0,MAP+2,MAP+2).data;let bad=0;for(let i=0;i<MAP*MAP;i++){const x=i%MAP,y=(i/MAP)|0,a=d[((y+1)*(MAP+2)+x+1)*4+3];if(a!==(vis[i]===0?255:vis[i]===1?128:0))bad++;}return bad;});
+  ok(fg===0,'fog layer matches the visibility map tile for tile');
+  await p.screenshot({path:path.join(SHOTS,'ui-zoomed-out.png')});await p.evaluate(()=>{cam.z=1;clampCam();});}
  await p.evaluate(()=>{showHelp=true;});await sleep(150);await p.screenshot({path:path.join(SHOTS,'ui-help.png')});await p.evaluate(()=>{showHelp=false;});
  // ---- page served by a plain static web server (like a Synology web folder): multiplayer explained, no endless "connecting"
  {const http=require('http'),fs=require('fs');const st=http.createServer((q,r)=>{r.writeHead(200,{'Content-Type':'text/html'});r.end(fs.readFileSync(path.join(__dirname,'..','index.html')));}).listen(8134);
@@ -102,6 +122,8 @@ const SHOTS=path.join(require('os').tmpdir(),'kom-shots');require('fs').mkdirSyn
  await b.keyboard.press('b');await b.keyboard.press('h');const tgt=await b.evaluate(()=>{const k=players[me].keep;for(let r=4;r<9;r++)for(let a=0;a<16;a++){const tx=Math.round(k.x+Math.cos(a/16*6.28)*r)-1,ty=Math.round(k.y+Math.sin(a/16*6.28)*r)-1;if(!canPlace('house',tx,ty,me,null)){const s=worldToScreen(tx+1,ty+1);return s;}}return null;});
  await b.mouse.move(tgt[0],tgt[1]);await sleep(80);await b.mouse.click(tgt[0],tgt[1]);let seen=false;
  for(let i=0;i<40&&!seen;i++){await sleep(500);seen=await a.evaluate(()=>blds.some(x=>x.type==='house'&&x.owner===2&&x.bc>0));}
+ {await b.evaluate(()=>{showHelp=false;cam.z=0.45;clampCam();});await sleep(300);const nb=await trackDrawn(b,3000,[-6,7]);
+  ok(nb&&nb.distinct>15&&nb.movedPx>8&&nb.lastErr<1.5,'LAN client zoomed out: units from server snapshots move on screen every frame '+JSON.stringify(nb));await b.evaluate(()=>{cam.z=1;clampCam();});}
  ok(seen,"LAN: Bob's B,H placement creates a site that his peasant builds (builder count visible in Alice's stream)");
  await b.evaluate(()=>issue({t:'bell'}));let gb=false;for(let i=0;i<30&&!gb;i++){await sleep(500);gb=await a.evaluate(()=>players[2].bell&&blds.some(x=>x.owner===2&&x.type==='keep'&&x.garN>0));}
  ok(gb,"LAN: Bob's Town Bell garrisons his peasants (server-authoritative, seen by Alice)");

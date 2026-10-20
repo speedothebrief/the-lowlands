@@ -242,9 +242,9 @@ let last=performance.now();
 function checkOutcome(){if(state!=='play'&&state!=='paused')return;const P=players[me];if(!P)return;
  const won=!P.surrendered&&players.every(q=>q===P||q.surrendered);
  if(P.surrendered||won){state=won?'won':'lost';AU.battle.reset();AU.play(won?'victory':'defeat');endShown=false;placing=null;endInfo={time,trained:P.stats.trained,killed:P.stats.killed,lost:P.stats.lost};}}
-function frame(now){const dt=Math.min(.1,(now-last)/1000);last=now;
+function frame(now){const rdt=Math.max(0,(now-last)/1000),dt=Math.min(.1,rdt);last=now;
  try{
- if(mode==='local'&&(state==='play'||state==='won'||state==='lost')&&!showHelp){simAcc+=dt;let n=0;while(simAcc>=STEP&&n<5){sim(STEP);simAcc-=STEP;n++;}if(n>=5)simAcc=0;}
+ if(mode==='local'&&(state==='play'||state==='won'||state==='lost')&&!showHelp){simAcc+=Math.min(rdt,.25);let n=0;while(simAcc>=STEP&&n<8){sim(STEP);simAcc-=STEP;n++;}if(n>=8)simAcc=0;}
  if(mode==='local'){if(sfxEv.length)AU.events(sfxEv.splice(0));}
  if(mode==='net'&&inGame())netFrame(dt);
  if(inGame()){vis=visMap[me]||vis;checkOutcome();pings=pings.filter(p=>time-p.t<20);if(endShown&&(state==='won'||state==='lost')){}}
