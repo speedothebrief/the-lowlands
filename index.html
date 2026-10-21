@@ -1426,9 +1426,9 @@ function drawMenu(){uiBtns=[];tip=null;const [x,y]=overlayPanel(600,560);
  bigBtn(x+197,y+466,205,'?  Help',()=>{showHelp=true;},false);
  if(menuNote==='file'||!served){const a=menuNote==='file';
   text(a?'Multiplayer needs the game server. This page was opened as a file.':'Multiplayer: start the host app (or the Docker server), then everyone opens',W/2,y+514,a?'#ffb08a':'#aa9','11px Georgia, serif','center');
-  text(a?'Start the host app (or Docker server) and open http://<server-ip>:8080 in the browser.':'http://<server-ip>:8080 in the browser and clicks Join LAN.',W/2,y+527,a?'#ffb08a':'#aa9','11px Georgia, serif','center');}
+  text(a?'Start the host app (or Docker server) and open http://<server-ip>:8080 (Synology: :8090).':'http://<server-ip>:8080 (Synology Docker: :8090) and clicks Join LAN.',W/2,y+527,a?'#ffb08a':'#aa9','11px Georgia, serif','center');}
  else if(!netAvailable&&wsFails>=2){text('No game server answers at this address (a static web folder cannot run multiplayer).',W/2,y+514,'#ffb08a','11px Georgia, serif','center');
-  text('Start the host app or the Docker server and open http://<server-ip>:8080 instead.',W/2,y+527,'#ffb08a','11px Georgia, serif','center');}
+  text('Start the host app or the Docker server and open http://<server-ip>:8080 (Synology Docker: :8090) instead.',W/2,y+527,'#ffb08a','11px Georgia, serif','center');}
  else text(netAvailable?'Connected to the game server — click Join LAN to pick a kingdom.':'Connecting to the game server…',W/2,y+516,netAvailable?'#aa9':'#ffd27a','11px Georgia, serif','center');
  {const upd=srvUpd&&srvUpd.latest&&/available|downloaded|installing|failed/.test(srvUpd.update||'');
   text('v'+APP_VERSION+(srvVer?`  ·  server v${srvVer}`:''),x+590,y+16,'#887','11px Georgia, serif','right');
@@ -1453,7 +1453,7 @@ function drawLobby(){uiBtns=[];tip=null;const [x,y]=overlayPanel(640,560);
   text('Map size:',x+30,y+420,'#ffe7a8','bold 13px Georgia, serif');Object.keys(MAPSIZES).forEach((s,i)=>smallBtn(x+150+i*90,y+404,84,24,MAPSIZES[s].label,()=>netSend({t:'cfg',diff:lobby.diff,fog:lobby.fog,size:s}),{t:'Map size',d:{small:'96×96 tiles (1×)',medium:'144×144 tiles (1.5×)',large:'192×192 tiles (2×)'}[s]},(lobby.size||'small')===s));
   const canStart=lobby.clients.some(c=>c.slot>=0);bigBtn(x+170,y+438,300,canStart?'▶  Start Game':'Take a slot to start',()=>{if(canStart)netSend({t:'start'});},canStart);}
  else text(`Waiting for the host to start…  (AI: ${DIFF[lobby.diff].label}, fog ${lobby.fog?'on':'off'}, map ${(MAPSIZES[lobby.size]||MAPSIZES.small).label})`,W/2,y+400,'#cdbb90','14px Georgia, serif','center');
- text('Others join by opening this same address (http://<server>:8080) and clicking Join LAN. Empty slots are played by the AI.',W/2,y+480,'#998','12px Georgia, serif','center');
+ text('Others join by opening this same address ('+(location.host?location.protocol+'//'+location.host:'http://<server>:8080')+') and clicking Join LAN. Empty slots are played by the AI.',W/2,y+480,'#998','12px Georgia, serif','center');
  smallBtn(x+270,y+510,100,26,'Back',()=>{state='menu';},{t:'Return to main menu'});}
 function drawPause(){uiBtns=[];tip=null;const net=mode==='net';const host=net&&lobby&&lobby.host===myCid;const [x,y]=overlayPanel(360,300);
  text(net?'Game Menu':'Paused',W/2,y+44,'#ffe7a8','bold 28px Georgia, serif','center');if(net)text('(multiplayer keeps running)',W/2,y+66,'#aa9','12px Georgia, serif','center');

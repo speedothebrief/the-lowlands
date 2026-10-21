@@ -6,7 +6,8 @@ single file `index.html` and has no external dependencies.
 
 **Multiplayer in one sentence:** one computer runs the game server, either the
 double-click **host app** or the **Docker container** (e.g. on a Synology), and everyone
-opens **`http://<server>:8080`** in a browser and clicks **Join LAN**.
+opens **`http://<server>:8080`** (host app) or **`http://<nas>:8090`** (Synology/Docker) in a
+browser and clicks **Join LAN**.
 
 Multiplayer needs that Node server: the lobby, the authoritative simulation and the websocket
 all live there. Opening `index.html` as a file, or putting it in a static web folder (Synology
@@ -22,7 +23,8 @@ Open `index.html` in any modern browser (double-click works), pick difficulty, f
 2. **Docker, e.g. on a Synology NAS.** Always on, no computer needs to stay awake. See
    [Hosting on Synology](#hosting-on-synology-or-any-docker-host).
 
-Then every player opens `http://<server-ip>:8080`, e.g. `http://192.168.1.20:8080`, clicks
+Then every player opens `http://<server-ip>:8080` for the host app (e.g. `http://192.168.1.20:8080`)
+or `http://<nas-ip>:8090` for the Docker server on a Synology, clicks
 **Join LAN**, takes a kingdom, and the host (the first player to connect) clicks **Start Game**.
 Developers can also run `node server.js` (see [LAN multiplayer](#lan-multiplayer)).
 
@@ -147,14 +149,51 @@ loser's stockpile as tribute.
 
 ## Hosting on Synology (or any Docker host)
 The repo ships with a `Dockerfile` (node:20-alpine, production dependencies only, runs as the
-non-root `node` user, exposes TCP 8080) and a `docker-compose.yml` (`8080:8080`,
-`restart: unless-stopped`). Only one port is needed, and it carries the page and the game
+non-root `node` user, listens on TCP 8080 inside the container), a `docker-compose.yml` and the
+script `deploy-synology.sh`. Only one port is needed, and it carries the page and the game
 websocket (`/ws`).
 
-Anywhere with Docker and compose:
+**On the NAS the server is published on port 8090, not 8080:** DSM's own nginx (Web Station)
+already listens on 8080, so the container maps **host 8090 → container 8080**. Players open
+**`http://<nas-ip>:8090/`**. (The host app on a Mac or PC still uses 8080.)
+
+### Quick path — one script (old Docker package, Container Manager, any Linux with Docker)
+1. **Turn on SSH** (Control Panel → Terminal & SNMP → *Enable SSH service*) and log in as an
+   administrator: `ssh your-admin-user@192.168.1.20` (your NAS's IP).
+2. **Clone and deploy**, e.g. in the `docker` shared folder:
+   ```bash
+   cd /volume1/docker
+   git clone https://github.com/speedothebrief/the-lowlands.git && cd the-lowlands && sh deploy-synology.sh
+   ```
+   (No git on the NAS? Upload the repo with File Station and run `sh deploy-synology.sh` in that
+   folder; it then skips the pull.)
+3. **Update** later by running the script again:
+   `cd /volume1/docker/the-lowlands && sh deploy-synology.sh`.
+
+What the script does, from the repo folder:
+- `git pull --ff-only`, unless you pass `--no-pull`. It stops with a clear message if the pull
+  can't fast-forward, e.g. because files were edited on the NAS.
+- Finds `docker` (Synology keeps it in `/usr/local/bin`) and runs it with `sudo` unless you are
+  root, so it asks for your password.
+- Builds `the-lowlands:latest` (plus a version tag such as `the-lowlands:1.2.1`).
+- Stops and removes the old `the-lowlands` container (and a leftover `the-lowlands1`), then runs
+  `docker run -d --name the-lowlands --restart unless-stopped -p 8090:8080 the-lowlands:latest`.
+- Waits up to 30 s for the server to answer, prints the `http://<ip>:8090/` addresses to share,
+  and removes dangling old images (`--no-prune` keeps them).
+
+Another port: `sh deploy-synology.sh 8091` or `PORT=8091 sh deploy-synology.sh`. If the port is
+already taken by something else, the script says so before building.
+
+**Can't connect?**
+- **Mac:** System Settings → Privacy & Security → **Local Network** → turn it on for your browser
+  (Safari, Chrome, Firefox…), then reload. Without it, macOS silently blocks pages on your LAN.
+- **DSM firewall:** if it is on (Control Panel → Security → Firewall → Edit Rules), add *Allow*
+  for **TCP 8090**, source = your LAN subnet (e.g. 192.168.1.0/24).
+
+Anywhere with Docker and compose instead:
 
 ```bash
-docker compose up -d --build     # then open http://<host-ip>:8080/
+docker compose up -d --build     # then open http://<host-ip>:8090/  (PORT=xxxx to change)
 ```
 
 > **Synology's static web hosting cannot run multiplayer.** Putting `index.html` in the `web`
@@ -162,18 +201,19 @@ docker compose up -d --build     # then open http://<host-ip>:8080/
 > no game server answers. Multiplayer needs the Node server, i.e. this Docker container (or the
 > Node.js package, see Option C).
 
-### Option A — the old **Docker** package (DSM 6.x / 7.0–7.1)
+### Option A — by hand in the old **Docker** package (DSM 6.x / 7.0–7.1)
+The script above does all of this for you; these are the manual steps.
 This package has no *Project* tab, only **Overview, Registry, Image, Container, Network, Log**.
 So build the image over SSH, then launch it from the **Image** tab.
 
 1. **Turn on SSH**: Control Panel → Terminal & SNMP → *Enable SSH service* (port 22). You can
    turn it off again when you're done.
-2. **Put the files on the NAS.** In File Station, open the `docker` shared folder (the Docker
-   package creates it) and make a folder `the-lowlands`. Upload the repo into it: on GitHub,
-   *Code → Download ZIP*, unzip on your computer, then upload the contents. You need at least
+2. **Put the files on the NAS:**
+   `git clone https://github.com/speedothebrief/the-lowlands.git /volume1/docker/the-lowlands`.
+   Without git: in File Station open the `docker` shared folder, make a folder `the-lowlands`,
+   and upload the repo (GitHub *Code → Download ZIP*, unzipped). You need at least
    `Dockerfile`, `package.json`, `package-lock.json`, `index.html`, `server.js`, `room.js` and
-   `host/updater.js`. The result should be `/volume1/docker/the-lowlands/Dockerfile`, etc.
-   (With git: `git clone https://github.com/speedothebrief/the-lowlands.git /volume1/docker/the-lowlands`.)
+   `host/updater.js`, e.g. `/volume1/docker/the-lowlands/Dockerfile`.
 3. **Build the image** over SSH (Terminal on macOS/Linux, PowerShell or PuTTY on Windows):
    ```bash
    ssh your-admin-user@192.168.1.20          # your NAS's IP
@@ -187,8 +227,9 @@ So build the image over SSH, then launch it from the **Image** tab.
    - Container name: `the-lowlands`.
    - **Advanced Settings**:
      - Tick **Enable auto-restart**.
-     - **Port Settings**: set *Local Port* `8080` → *Container Port* `8080`, type TCP. Replace
-       "Auto" with 8080, or the NAS picks a random port.
+     - **Port Settings**: set *Local Port* `8090` → *Container Port* `8080`, type TCP. Replace
+       "Auto" with 8090, or the NAS picks a random port. Don't use 8080 as the local port: DSM's
+       nginx already has it.
      - Optional, under *Environment*: add `LOWLANDS_NO_UPDATE` = `1` to skip the update check.
    - Apply → Next → **Done** (leave "Run this container after the wizard is finished" ticked).
    - On DSM 7.0/7.1 the same options are spread over the wizard pages: General Settings
@@ -196,20 +237,20 @@ So build the image over SSH, then launch it from the **Image** tab.
 
    Same thing from SSH instead of the wizard:
    ```bash
-   sudo docker run -d --name the-lowlands --restart unless-stopped -p 8080:8080 the-lowlands
+   sudo docker run -d --name the-lowlands --restart unless-stopped -p 8090:8080 the-lowlands
    ```
 5. **Firewall:** if the DSM firewall is on (Control Panel → Security → Firewall → Edit Rules),
-   add *Allow* for **TCP 8080**, source = your LAN subnet (e.g. 192.168.1.0/24).
-6. **Play:** everyone opens **`http://<nas-ip>:8080/`** and clicks **Join LAN**.
-   The log (Container → the-lowlands → Details → Log) shows the container's internal 172.x IP.
-   Ignore it and use the NAS's own LAN IP.
+   add *Allow* for **TCP 8090**, source = your LAN subnet (e.g. 192.168.1.0/24).
+6. **Play:** everyone opens **`http://<nas-ip>:8090/`** and clicks **Join LAN**.
+   The log (Container → the-lowlands → Details → Log) says the server listens on 8080 at the
+   container's internal 172.x IP. Ignore that and use the NAS's own LAN IP with port 8090.
 
-**Updating (old Docker package):** upload the new files, or `git pull` in the folder, then over
-SSH:
+**Updating (old Docker package):** rerun `sh deploy-synology.sh`. By hand: `git pull` in the
+folder (or upload the new files), then over SSH:
 ```bash
 cd /volume1/docker/the-lowlands && sudo docker build -t the-lowlands .
 sudo docker rm -f the-lowlands
-sudo docker run -d --name the-lowlands --restart unless-stopped -p 8080:8080 the-lowlands
+sudo docker run -d --name the-lowlands --restart unless-stopped -p 8090:8080 the-lowlands
 ```
 Alternatively, after the build, stop and delete the container in the Container tab, then
 Image → Launch again.
@@ -218,7 +259,7 @@ Image → Launch again.
 1. Copy the repo folder to `/volume1/docker/the-lowlands` (as in step 2 above).
 2. **Container Manager → Project → Create**. Name it `the-lowlands`, set the path to that folder,
    and choose *Use existing docker-compose.yml*. Finish the wizard. It builds the image, starts
-   the container and restarts it after reboots.
+   the container on port 8090 and restarts it after reboots.
 3. Firewall and playing are as in steps 5–6 above.
 
 To update, replace the files, then **Project → the-lowlands → Action → Build** (or
@@ -227,11 +268,12 @@ To update, replace the files, then **Project → the-lowlands → Action → Bui
 ### Option C — no Docker (Node.js package)
 Install **Node.js v20** from the Package Center, then over SSH:
 ```bash
-cd /volume1/docker/the-lowlands && npm ci --omit=dev && node server.js
+cd /volume1/docker/the-lowlands && npm ci --omit=dev && PORT=8090 node server.js
 ```
+Use `PORT=8090`: DSM's nginx already has 8080.
 To keep it running after boot, add a *Triggered Task* (Control Panel → Task Scheduler →
 Boot-up, user that owns the folder) with the command
-`cd /volume1/docker/the-lowlands && /usr/local/bin/node server.js`.
+`cd /volume1/docker/the-lowlands && PORT=8090 /usr/local/bin/node server.js`.
 
 ### Update notice
 The server never replaces itself in Docker. It checks GitHub at startup and every 4 hours,
@@ -240,12 +282,12 @@ the browsers' main menu. Set `LOWLANDS_NO_UPDATE=1` to turn the check off. After
 browser tabs reconnect, notice the new version and reload.
 
 ### Optional: a name like wardenfam.com (reverse proxy)
-You don't need a reverse proxy on the LAN: `http://<nas-ip>:8080/` works directly. To use a
+You don't need a reverse proxy on the LAN: `http://<nas-ip>:8090/` works directly. To use a
 domain with HTTPS:
 - **Where:** DSM 7: Control Panel → Login Portal → Advanced → **Reverse Proxy**. DSM 6:
   Control Panel → Application Portal → Reverse Proxy. Click **Create**.
 - **Source:** HTTPS, hostname `lowlands.wardenfam.com` (or `wardenfam.com`), port 443.
-- **Destination:** HTTP, `localhost`, port 8080.
+- **Destination:** HTTP, `localhost`, port 8090 (the container's host port).
 - **WebSocket headers:** Custom Header → Create → **WebSocket**. Without them the page loads
   but Join LAN never connects.
 - **Certificate:** Control Panel → Security → Certificate (Let's Encrypt) for that hostname.
