@@ -127,6 +127,23 @@ async function trackDrawn(pg,ms,order){return pg.evaluate(async(ms,order)=>{cons
  ok(seen,"LAN: Bob's B,H placement creates a site that his peasant builds (builder count visible in Alice's stream)");
  await b.evaluate(()=>issue({t:'bell'}));let gb=false;for(let i=0;i<30&&!gb;i++){await sleep(500);gb=await a.evaluate(()=>players[2].bell&&blds.some(x=>x.owner===2&&x.type==='keep'&&x.garN>0));}
  ok(gb,"LAN: Bob's Town Bell garrisons his peasants (server-authoritative, seen by Alice)");
+ // ---- net robustness (v1.2.2): a busy page applies only the newest snapshot, F3 overlay, lag banner, reconnect + resync
+ await b.bringToFront();await sleep(200);
+ {const before=await b.evaluate(()=>({r:NS.recv}));await b.evaluate(()=>{const t=performance.now();while(performance.now()-t<1500){}});await sleep(400);
+  const after=await b.evaluate(()=>({r:NS.recv,tm:snapT}));const ta=await a.evaluate(()=>snapT);
+  ok(after.r-before.r<=10&&Math.abs(ta-after.tm)<0.6,`busy page (1.5 s blocked): the server held back snapshots it couldn't take (${after.r-before.r} arrived instead of ~28) and its game time is current right after (${after.tm.toFixed(2)} vs ${ta.toFixed(2)})`);}
+ {const n0=await b.evaluate(()=>{window.__raf=window.requestAnimationFrame;window.requestAnimationFrame=()=>0;return NS.applied;});await sleep(2200);   // frames stop (throttled/occluded display)
+  const r=await b.evaluate(()=>({n:NS.applied,tm:snapT}));const ta=await a.evaluate(()=>snapT);await b.evaluate(()=>{window.requestAnimationFrame=window.__raf;requestAnimationFrame(frame);});
+  ok(r.n-n0>=15&&Math.abs(ta-r.tm)<0.6,`no animation frames for 2 s: updates are still applied on arrival (${r.n-n0} applied, game time ${r.tm.toFixed(2)} vs ${ta.toFixed(2)})`);}
+ const drawn=async(fn)=>b.evaluate(fn=>{const out=[];const o=ctx.fillText;ctx.fillText=function(t){out.push(String(t));return o.apply(this,arguments);};try{(0,eval)(fn)();}finally{ctx.fillText=o;}return out;},fn.toString());
+ await b.keyboard.press('F3');let tx=await drawn(()=>drawNetStatus());
+ ok(await b.evaluate(()=>showNet)&&tx.some(t=>t.includes('Network (F3)'))&&tx.some(t=>/^ping \d+ ms/.test(t))&&tx.some(t=>t.startsWith('server tick #')),'F3 shows the network overlay (ping, last update, server tick…)');
+ await b.keyboard.press('F3');
+ tx=await drawn(()=>{NS.lastSnapT=performance.now()-3000;drawNetStatus();});ok(tx.some(t=>t.startsWith('Connection lagging')),'a "Connection lagging" banner appears when no update came for >1.5 s');
+ await b.evaluate(()=>ws.close());await sleep(300);tx=await drawn(()=>drawNetStatus());const lostShown=tx.some(t=>t.startsWith('Connection lost'));
+ let back=null;for(let i=0;i<20&&!back;i++){await sleep(500);back=await b.evaluate(()=>mode==='net'&&me===2&&NS.reconnects>=1&&!NS.lostT&&units.length>0?{rc:NS.reconnects}:null);}
+ const human=await a.evaluate(()=>players[2].isHuman);
+ ok(lostShown&&back&&human,'dropped connection: banner, automatic reconnect, same kingdom back under human control (resync) '+JSON.stringify(back));
  await b.screenshot({path:path.join(SHOTS,'ui-lan-large.png')});
  srv.kill();
  ok(errs.length===0,'no page errors'+(errs.length?':\n'+errs.join('\n'):''));

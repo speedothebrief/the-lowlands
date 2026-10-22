@@ -127,7 +127,7 @@ function spawnUnit(type,x,y,owner){const D=UNITS[type];const u={id:nextId++,kind
 function spawnBld(type,tx,ty,owner,complete){const D=BLD[type];
  const b={id:nextId++,kind:'bld',type,owner,tx,ty,w:D.w,h:D.h,x:tx+D.w/2,y:ty+D.h/2,hp:complete?D.hp:D.hp*.1,maxhp:D.hp,built:!!complete,prog:complete?1:0,queue:[],trainT:0,cd:0,rally:null,workers:[],gar:[],lastHit:-99,blocked:false};
  blds.push(b);
- for(let y=ty;y<ty+D.h;y++)for(let x=tx;x<tx+D.w;x++)bgrid[y*MAP+x]=b;
+ for(let y=ty;y<ty+D.h;y++)for(let x=tx;x<tx+D.w;x++)bgrid[y*MAP+x]=b;passGen++;
  if(!D.walk)for(const u of units){if(u.x>=tx-.2&&u.x<=tx+D.w+.2&&u.y>=ty-.2&&u.y<=ty+D.h+.2){const n=nearestFree(Math.floor(u.x),Math.floor(u.y),u.x,u.y,u.owner,6);if(n){u.x=n[0]+.5;u.y=n[1]+.5;u.path=null;u.pend=null;}}}
  mmDirty=true;return b;}
 function passable(x,y,owner){if(x<0||y<0||x>=MAP||y>=MAP)return false;const i=y*MAP+x;if(tiles[i]||resT[i])return false;const b=bgrid[i];if(b){if(b.type==='farm')return true;if(b.type==='gate'&&b.owner===owner)return true;return false;}return true;}
@@ -147,11 +147,21 @@ function nearestRes(t,x,y,maxR,needExposed=true,forU=null){x=Math.floor(x);y=Mat
 // ===== A* =====
 let NN=MAP*MAP;let gS=new Float32Array(NN),from=new Int32Array(NN),stO=new Uint32Array(NN),stC=new Uint32Array(NN);let stamp=0;
 let HI=new Int32Array(NN*8),HF=new Float32Array(NN*8);
+// connected regions per owner (flood fill, recomputed lazily after buildings/resources change): a goal in another
+// region (walled in, across water...) can't be reached, so the search gets a small budget for a best-effort approach
+// instead of exhausting the full expansion cap - those failed searches were the server's worst CPU spikes (~50 ms)
+let passGen=1;const regions={};
+function regionOf(owner){let R=regions[owner];if(R&&R.gen===passGen&&R.lab.length===MAP*MAP)return R.lab;
+ const lab=(R&&R.lab.length===MAP*MAP)?R.lab:new Int32Array(MAP*MAP);lab.fill(0);let n=0;const q=new Int32Array(MAP*MAP);
+ for(let i0=0;i0<MAP*MAP;i0++){if(lab[i0]||!passable(i0%MAP,(i0/MAP)|0,owner))continue;n++;let h=0,t=0;q[t++]=i0;lab[i0]=n;
+  while(h<t){const c=q[h++],cx=c%MAP,cy=(c/MAP)|0;for(let d=0;d<8;d++){const nx=cx+DX[d],ny=cy+DY[d];if(nx<0||ny<0||nx>=MAP||ny>=MAP)continue;const ni=ny*MAP+nx;if(lab[ni]||!passable(nx,ny,owner))continue;
+   if(d>=4&&(!passable(nx,cy,owner)||!passable(cx,ny,owner)))continue;lab[ni]=n;q[t++]=ni;}}}
+ regions[owner]={gen:passGen,lab};return lab;}
 function findPath(sx,sy,gx,gy,owner){
  sx=clamp(sx|0,0,MAP-1);sy=clamp(sy|0,0,MAP-1);gx=clamp(gx|0,0,MAP-1);gy=clamp(gy|0,0,MAP-1);
  if(!passable(gx,gy,owner)){const n=nearestFree(gx,gy,sx+.5,sy+.5,owner,8);if(!n)return null;gx=n[0];gy=n[1];}
  if(sx===gx&&sy===gy)return [];
- stamp++;let hl=0;const expCap=Math.min(9000*MAP*MAP/9216,Math.max(3000,pathExp));
+ stamp++;let hl=0;const RL=regionOf(owner),rs=RL[sy*MAP+sx],cut=rs&&RL[gy*MAP+gx]!==rs;const expCap=cut?1500:Math.min(9000*MAP*MAP/9216,Math.max(3000,pathExp));
  const push=(i,f)=>{let k=hl++;while(k>0){const p=(k-1)>>1;if(HF[p]<=f)break;HI[k]=HI[p];HF[k]=HF[p];k=p;}HI[k]=i;HF[k]=f;};
  const pop=()=>{const top=HI[0];hl--;if(hl>0){const li=HI[hl],lf=HF[hl];let k=0;for(;;){let c=2*k+1;if(c>=hl)break;if(c+1<hl&&HF[c+1]<HF[c])c++;if(HF[c]>=lf)break;HI[k]=HI[c];HF[k]=HF[c];k=c;}HI[k]=li;HF[k]=lf;}return top;};
  // weighted A* (w=1.35): near-optimal paths with far fewer expansions on the big maps

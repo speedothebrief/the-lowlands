@@ -115,7 +115,7 @@ function drawHelp(){uiBtns=[];tip=null;const [x,y]=overlayPanel(Math.min(W-40,90
  ['Army','Keep trains peasants; Barracks: spearmen & archers; Stable: knights; Workshop: catapults. Q/E/R/T train from the selected building (when the build menu is closed). Right-click with a building selected sets its rally point. Houses raise population.'],
  ['Counters','Spearmen beat knights. Knights crush archers & catapults. Archers shred infantry. Catapults demolish walls and buildings. Towers, Keeps and Fortresses shoot arrows.'],
  ['Rivals','Ravenmoor is aggressive and attacks early. Eldmark builds a big economy and strikes late with large armies. Stonehold walls itself in with towers. Rivals also fight each other.'],
- ['Other','P / Esc pauses (restart from the pause menu). F toggles fog of war. H toggles this help. M mutes sound; volume sliders are under the Sound button (top bar) and in the pause menu.']];
+ ['Other','P / Esc pauses (restart from the pause menu). F toggles fog of war. H toggles this help. F3 shows the network status in multiplayer (ping, last server update, reconnects). M mutes sound; volume sliders are under the Sound button (top bar) and in the pause menu.']];
  text('How to Play',W/2,y+40,'#ffe7a8','bold 26px Georgia, serif','center');let yy=y+72;const mw=Math.min(W-40,900)-170;
  ctx.font='13px Georgia, serif';for(const [h,t] of L){text(h,x+24,yy,'#e8c870','bold 13px Georgia, serif');const words=t.split(' ');let line='';ctx.font='13px Georgia, serif';for(const w2 of words){if(ctx.measureText(line+w2).width>mw){text(line,x+130,yy,'#ddd');yy+=17;line='';}line+=w2+' ';}text(line,x+130,yy,'#ddd');yy+=24;}
  bigBtn(W/2-100,Math.min(yy+4,y+Math.min(H-40,720)-50),200,'Continue',()=>{showHelp=false;},true);}

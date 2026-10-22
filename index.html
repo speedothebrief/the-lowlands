@@ -4,7 +4,7 @@
 <style>html,body{margin:0;height:100%;overflow:hidden;background:#0b0d10}canvas{display:block;cursor:default}</style></head>
 <body><canvas id="c"></canvas>
 <script>
-const APP_VERSION='1.2.1';
+const APP_VERSION='1.2.2';
 /*SIM-BEGIN*/
 'use strict';
 // ===== The Lowlands — single-file RTS =====
@@ -135,7 +135,7 @@ function spawnUnit(type,x,y,owner){const D=UNITS[type];const u={id:nextId++,kind
 function spawnBld(type,tx,ty,owner,complete){const D=BLD[type];
  const b={id:nextId++,kind:'bld',type,owner,tx,ty,w:D.w,h:D.h,x:tx+D.w/2,y:ty+D.h/2,hp:complete?D.hp:D.hp*.1,maxhp:D.hp,built:!!complete,prog:complete?1:0,queue:[],trainT:0,cd:0,rally:null,workers:[],gar:[],lastHit:-99,blocked:false};
  blds.push(b);
- for(let y=ty;y<ty+D.h;y++)for(let x=tx;x<tx+D.w;x++)bgrid[y*MAP+x]=b;
+ for(let y=ty;y<ty+D.h;y++)for(let x=tx;x<tx+D.w;x++)bgrid[y*MAP+x]=b;passGen++;
  if(!D.walk)for(const u of units){if(u.x>=tx-.2&&u.x<=tx+D.w+.2&&u.y>=ty-.2&&u.y<=ty+D.h+.2){const n=nearestFree(Math.floor(u.x),Math.floor(u.y),u.x,u.y,u.owner,6);if(n){u.x=n[0]+.5;u.y=n[1]+.5;u.path=null;u.pend=null;}}}
  mmDirty=true;return b;}
 function passable(x,y,owner){if(x<0||y<0||x>=MAP||y>=MAP)return false;const i=y*MAP+x;if(tiles[i]||resT[i])return false;const b=bgrid[i];if(b){if(b.type==='farm')return true;if(b.type==='gate'&&b.owner===owner)return true;return false;}return true;}
@@ -155,11 +155,21 @@ function nearestRes(t,x,y,maxR,needExposed=true,forU=null){x=Math.floor(x);y=Mat
 // ===== A* =====
 let NN=MAP*MAP;let gS=new Float32Array(NN),from=new Int32Array(NN),stO=new Uint32Array(NN),stC=new Uint32Array(NN);let stamp=0;
 let HI=new Int32Array(NN*8),HF=new Float32Array(NN*8);
+// connected regions per owner (flood fill, recomputed lazily after buildings/resources change): a goal in another
+// region (walled in, across water...) can't be reached, so the search gets a small budget for a best-effort approach
+// instead of exhausting the full expansion cap - those failed searches were the server's worst CPU spikes (~50 ms)
+let passGen=1;const regions={};
+function regionOf(owner){let R=regions[owner];if(R&&R.gen===passGen&&R.lab.length===MAP*MAP)return R.lab;
+ const lab=(R&&R.lab.length===MAP*MAP)?R.lab:new Int32Array(MAP*MAP);lab.fill(0);let n=0;const q=new Int32Array(MAP*MAP);
+ for(let i0=0;i0<MAP*MAP;i0++){if(lab[i0]||!passable(i0%MAP,(i0/MAP)|0,owner))continue;n++;let h=0,t=0;q[t++]=i0;lab[i0]=n;
+  while(h<t){const c=q[h++],cx=c%MAP,cy=(c/MAP)|0;for(let d=0;d<8;d++){const nx=cx+DX[d],ny=cy+DY[d];if(nx<0||ny<0||nx>=MAP||ny>=MAP)continue;const ni=ny*MAP+nx;if(lab[ni]||!passable(nx,ny,owner))continue;
+   if(d>=4&&(!passable(nx,cy,owner)||!passable(cx,ny,owner)))continue;lab[ni]=n;q[t++]=ni;}}}
+ regions[owner]={gen:passGen,lab};return lab;}
 function findPath(sx,sy,gx,gy,owner){
  sx=clamp(sx|0,0,MAP-1);sy=clamp(sy|0,0,MAP-1);gx=clamp(gx|0,0,MAP-1);gy=clamp(gy|0,0,MAP-1);
  if(!passable(gx,gy,owner)){const n=nearestFree(gx,gy,sx+.5,sy+.5,owner,8);if(!n)return null;gx=n[0];gy=n[1];}
  if(sx===gx&&sy===gy)return [];
- stamp++;let hl=0;const expCap=Math.min(9000*MAP*MAP/9216,Math.max(3000,pathExp));
+ stamp++;let hl=0;const RL=regionOf(owner),rs=RL[sy*MAP+sx],cut=rs&&RL[gy*MAP+gx]!==rs;const expCap=cut?1500:Math.min(9000*MAP*MAP/9216,Math.max(3000,pathExp));
  const push=(i,f)=>{let k=hl++;while(k>0){const p=(k-1)>>1;if(HF[p]<=f)break;HI[k]=HI[p];HF[k]=HF[p];k=p;}HI[k]=i;HF[k]=f;};
  const pop=()=>{const top=HI[0];hl--;if(hl>0){const li=HI[hl],lf=HF[hl];let k=0;for(;;){let c=2*k+1;if(c>=hl)break;if(c+1<hl&&HF[c+1]<HF[c])c++;if(HF[c]>=lf)break;HI[k]=HI[c];HF[k]=HF[c];k=c;}HI[k]=li;HF[k]=lf;}return top;};
  // weighted A* (w=1.35): near-optimal paths with far fewer expansions on the big maps
@@ -238,7 +248,7 @@ function killEnt(e,by){
   decals.push({k:'corpse',x:e.x,y:e.y,t:time,c:players[e.owner].color});
   for(let i=0;i<6;i++)parts.push({x:e.x,y:e.y,z:6,vx:rr(-1.5,1.5),vy:rr(-1.5,1.5),vz:rr(10,40),life:.7,max:.7,c:'#8a1010',s:2});
  }else{
-  for(let y=e.ty;y<e.ty+e.h;y++)for(let x=e.tx;x<e.tx+e.w;x++)if(bgrid[y*MAP+x]===e)bgrid[y*MAP+x]=null;
+  for(let y=e.ty;y<e.ty+e.h;y++)for(let x=e.tx;x<e.tx+e.w;x++)if(bgrid[y*MAP+x]===e)bgrid[y*MAP+x]=null;passGen++;
   decals.push({k:'rubble',x:e.tx,y:e.ty,w:e.w,h:e.h,t:time});sfx('fall',e.x,e.y,e.owner,e.w);
   if(e.gar&&e.gar.length){const n=ejectAll(e,true);if(n&&players[e.owner].isHuman)msg(`${n} units fled the burning ${BLD[e.type].name}!`,'#ff8a6a',e.owner);}
   for(let i=0;i<14*e.w;i++)parts.push({x:e.x+rr(-e.w/2,e.w/2),y:e.y+rr(-e.h/2,e.h/2),z:rr(0,30),vx:rr(-1,1),vy:rr(-1,1),vz:rr(5,40),life:1.2,max:1.2,c:rnd()<.5?'#777':'#5a4a3a',s:3});
@@ -325,7 +335,7 @@ function peasantUpdate(u,dt){
   if(resT[i]!==RT[j.rt]){if(claim&&claim[i]===u.id)claim[i]=0;const n=nearestRes(RT[j.rt],j.tx,j.ty,12,true,u);if(!n){u.job=null;if(u.carry>0)startReturn(u);else u.state='idle';return;}j.tx=n[0];j.ty=n[1];i=j.ty*MAP+j.tx;if(claim)claim[i]=u.id;u.path=null;u.pend=null;u.approach=null;}
   const cx=j.tx+.5,cy=j.ty+.5;const d=Math.max(Math.abs(u.x-cx),Math.abs(u.y-cy));
   if(d<=1.3&&!u.pend){u.path=null;u.working=true;u.gfail=0;const sdx=(cx-cy)-(u.x-u.y);if(Math.abs(sdx)>.05)u.dir=sdx>0?1:-1;
-   u.gt+=dt*GRATE[j.rt]*mult;while(u.gt>=1){u.gt-=1;resA[i]-=1;u.carry++;u.carryT=j.rt;if(u.carry%3===0)sfx(j.rt==='wood'?'chop':'mine',cx,cy,u.owner,RT[j.rt]);if(resA[i]<=0){resT[i]=0;if(claim)claim[i]=0;resEvents.push(i);mmDirty=true;if(j.rt==='wood')parts.push({x:cx,y:cy,z:10,vx:0,vy:0,vz:20,life:.6,max:.6,c:'#3d6b2a',s:5});break;}if(u.carry>=CAP)break;}}
+   u.gt+=dt*GRATE[j.rt]*mult;while(u.gt>=1){u.gt-=1;resA[i]-=1;u.carry++;u.carryT=j.rt;if(u.carry%3===0)sfx(j.rt==='wood'?'chop':'mine',cx,cy,u.owner,RT[j.rt]);if(resA[i]<=0){resT[i]=0;passGen++;if(claim)claim[i]=0;resEvents.push(i);mmDirty=true;if(j.rt==='wood')parts.push({x:cx,y:cy,z:10,vx:0,vy:0,vz:20,life:.6,max:.6,c:'#3d6b2a',s:5});break;}if(u.carry>=CAP)break;}}
   else if(!hasPath(u)){u.gfail++;if(u.gfail>4){if(claim&&claim[i]===u.id)claim[i]=0;avoidNode(u,i);const n=nearestRes(RT[j.rt],u.x,u.y,6,true,u);if(n&&u.gfail<8){j.tx=n[0];j.ty=n[1];claim&&(claim[j.ty*MAP+j.tx]=u.id);}else{u.job=null;u.state='idle';return;}}
    const a=nearestFree(j.tx,j.ty,u.x,u.y,u.owner,1);if(!a){u.gfail+=2;return;}
    goTo(u,a[0]+.5,a[1]+.5);}
@@ -400,7 +410,7 @@ function surrender(p,by,why){if(p.surrendered)return;p.surrendered=true;p.surT=t
  else msg(`${p.name} has collapsed!`,rgb(p.color,1.3));
  if(p.isHuman)msg(why==='keep'?'Your Keep has fallen. Your kingdom is defeated.':'Your kingdom has surrendered.','#ff7a6a',p.id);
  for(const u of units)if(u.owner===p.id&&!u.dead){u.dead=true;for(let i=0;i<4;i++)parts.push({x:u.x,y:u.y,z:5,vx:rr(-.5,.5),vy:rr(-.5,.5),vz:rr(5,20),life:1,max:1,c:'#ddd',s:3});}
- for(const b of blds)if(b.owner===p.id&&!b.dead){b.dead=true;for(let y=b.ty;y<b.ty+b.h;y++)for(let x=b.tx;x<b.tx+b.w;x++)if(bgrid[y*MAP+x]===b)bgrid[y*MAP+x]=null;decals.push({k:'rubble',x:b.tx,y:b.ty,w:b.w,h:b.h,t:time});}
+ for(const b of blds)if(b.owner===p.id&&!b.dead){b.dead=true;for(let y=b.ty;y<b.ty+b.h;y++)for(let x=b.tx;x<b.tx+b.w;x++)if(bgrid[y*MAP+x]===b)bgrid[y*MAP+x]=null;passGen++;decals.push({k:'rubble',x:b.tx,y:b.ty,w:b.w,h:b.h,t:time});}
  mmDirty=true;sel=sel.filter(e=>!e.dead);checkEnd();}
 function checkEnd(){const alive=players.filter(q=>!q.surrendered);if(alive.length<=1||!alive.some(q=>q.isHuman)){if(!gameOver){gameOver=true;gameOverT=time;}}}
 let gameOverT=0;
@@ -669,7 +679,7 @@ function applyCmd(pid,c){const P=players[pid];if(!P||P.surrendered||!c)return;
 let simAcc=0,visT=0,mmT=0,winT=0;
 function setupGame(gseed,slots,diff,fog,size){
  difficulty=diff||'normal';fogOn=fog!==false;setMapSize(size);genMap(gseed);
- units=[];blds=[];projs=[];parts=[];decals=[];sel=[];groups={};msgs=[];pings=[];resEvents=[];sfxEv=[];claim=new Int32Array(MAP*MAP);unitById.clear();visMap={};time=0;gameOver=false;nextId=1;
+ passGen++;units=[];blds=[];projs=[];parts=[];decals=[];sel=[];groups={};msgs=[];pings=[];resEvents=[];sfxEv=[];claim=new Int32Array(MAP*MAP);unitById.clear();visMap={};time=0;gameOver=false;nextId=1;
  bgrid=new Array(MAP*MAP).fill(null);
  players=KINGDOMS.map((k,i)=>{const sl=slots&&slots[i]||{human:i===0};return{id:i,name:k.name,short:k.short,color:k.color,pers:k.pers,isHuman:!!sl.human,isAI:!sl.human,pname:sl.name||'',res:{food:300,wood:250,stone:150,gold:100},pop:0,popCap:10,surrendered:false,bell:false,lastAttackedBy:-1,lastAttackedT:-99,stats:{trained:0,killed:0,lost:0},ai:null,keep:null};});
  players.forEach((p,i)=>{const st=STARTS[i];p.keep=spawnBld('keep',st[0]-1,st[1]-1,i,true);
@@ -678,6 +688,7 @@ function setupGame(gseed,slots,diff,fog,size){
   if(p.isAI){const b=DIFF[difficulty].bonus;for(const r of RES)p.res[r]+=b;initAI(p);}});
  updateVis();mmDirty=true;}
 function makeAI(pid){const p=players[pid];if(!p||p.surrendered||p.isAI)return;p.isAI=true;p.isHuman=false;initAI(p);msg(`${p.pname||p.short} left — ${p.name} is now ruled by the AI.`,'#cdbb90');checkEnd();}
+function makeHuman(pid,name){const p=players[pid];if(!p||p.surrendered||!p.isAI)return false;p.isAI=false;p.isHuman=true;if(name)p.pname=name;msg(`${p.pname||p.short} reconnected and rules ${p.name} again.`,'#cdbb90');return true;}
 function sim(dt){
  time+=dt;if(gameOver&&!players.some(q=>q.isHuman&&!q.surrendered)&&time-gameOverT>3)return;pathBudget=12;pathExp=60000;pathEmerg=4;rebuildHash();
  for(const p of players){p.pop=0;p.popCap=0;}
@@ -1058,7 +1069,7 @@ function drawHelp(){uiBtns=[];tip=null;const [x,y]=overlayPanel(Math.min(W-40,90
  ['Army','Keep trains peasants; Barracks: spearmen & archers; Stable: knights; Workshop: catapults. Q/E/R/T train from the selected building (when the build menu is closed). Right-click with a building selected sets its rally point. Houses raise population.'],
  ['Counters','Spearmen beat knights. Knights crush archers & catapults. Archers shred infantry. Catapults demolish walls and buildings. Towers, Keeps and Fortresses shoot arrows.'],
  ['Rivals','Ravenmoor is aggressive and attacks early. Eldmark builds a big economy and strikes late with large armies. Stonehold walls itself in with towers. Rivals also fight each other.'],
- ['Other','P / Esc pauses (restart from the pause menu). F toggles fog of war. H toggles this help. M mutes sound; volume sliders are under the Sound button (top bar) and in the pause menu.']];
+ ['Other','P / Esc pauses (restart from the pause menu). F toggles fog of war. H toggles this help. F3 shows the network status in multiplayer (ping, last server update, reconnects). M mutes sound; volume sliders are under the Sound button (top bar) and in the pause menu.']];
  text('How to Play',W/2,y+40,'#ffe7a8','bold 26px Georgia, serif','center');let yy=y+72;const mw=Math.min(W-40,900)-170;
  ctx.font='13px Georgia, serif';for(const [h,t] of L){text(h,x+24,yy,'#e8c870','bold 13px Georgia, serif');const words=t.split(' ');let line='';ctx.font='13px Georgia, serif';for(const w2 of words){if(ctx.measureText(line+w2).width>mw){text(line,x+130,yy,'#ddd');yy+=17;line='';}line+=w2+' ';}text(line,x+130,yy,'#ddd');yy+=24;}
  bigBtn(W/2-100,Math.min(yy+4,y+Math.min(H-40,720)-50),200,'Continue',()=>{showHelp=false;},true);}
@@ -1310,6 +1321,7 @@ cv.addEventListener('wheel',e=>{e.preventDefault();if(!inGame())return;zoomAt(mo
 function zoomAt(sx,sy,f){const px=(sx-W/2)/cam.z+cam.x,py=(sy-H/2)/cam.z+cam.y;cam.z=clamp(cam.z*f,0.45,2.2);cam.x=px-(sx-W/2)/cam.z;cam.y=py-(sy-H/2)/cam.z;clampCam();}
 function clampCam(){cam.x=clamp(cam.x,-MAP*32,MAP*32);cam.y=clamp(cam.y,0,MAP*32);}
 window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'))return;
+ if(k==='f3'){e.preventDefault();showNet=!showNet;return;}
  if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k))e.preventDefault();
  keys.add(k);if(k==='m'&&!e.repeat&&!(buildMenuOpen&&inGame())){AU.init();AU.toggleMute();msg(AU.S.muted?'Sound muted (M)':'Sound on (M)','#cdbb90',me);}if(!inGame())return;
  if(buildMenuOpen&&state==='play'&&k.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey){keys.delete(k);const ty=BUILD_KEY_OF[k];buildMenuOpen=false;
@@ -1351,16 +1363,44 @@ function previewMap(){setMapSize(mapSize);genMap(Math.floor(Math.random()*1e9));
 let srvVer=null,srvVerFirst=null,srvUpd=null;   // server version (menu) / first one seen (reload after an update)
 let ws=null,conn=null,netKind=null,srvCid=null,srvLobby=null,netAvailable=false,lobby=null,myCid=null,snapRecvT=0,snapT=0,SNAP_DT=1/15,cmap=new Map();
 function myName(){try{return localStorage.getItem('kom_name')||'';}catch(e){return '';}}
+// per-tab identity: after a dropped connection the page reconnects with it and gets its kingdom back
+const myToken=(()=>{const mk=()=>Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join('');try{let t=sessionStorage.getItem('kom_tok');if(!t){t=mk();sessionStorage.setItem('kom_tok',t);}return t;}catch(e){return mk();}})();
 // multiplayer = the Node server (host app or Docker): this page talks to it over the /ws websocket
 let menuNote=null,wsFails=0;   // wsFails: websocket attempts that never opened (e.g. page from a static web server)
 let menuNote2=null;   // message under the menu buttons (e.g. why Join LAN is unavailable)
+// net status (F3 overlay, lag banner): ping, snapshot age/rate, server skips, client errors
+const NS={rtt:0,lastMsgT:0,lastSnapT:0,snapIv:1000/15,applied:0,recv:0,coalesced:0,rxB:0,rxRate:0,rxT:performance.now(),rxN:0,snapRate:0,applyMs:0,srvSkipped:0,seq:0,err:null,errN:0,errSentT:0,lostT:0,reconnects:0};
+let showNet=false,pendSnap=null,lastFrameT=performance.now(),flushTimer=0,lastApplyT=0;
 function netSend(o){if(conn)conn.send(JSON.stringify(o));}
 const wsConn={send:s=>{if(ws&&ws.readyState===1)ws.send(s);}};
 function openServerLobby(){netKind='server';conn=wsConn;myCid=srvCid;lobby=srvLobby;state='lobby';}
+function netErr(where,e){NS.errN++;NS.err=where+': '+(e&&e.message||e);console.error(e);const now=performance.now();if(now-NS.errSentT>10000){NS.errSentT=now;wsConn.send(JSON.stringify({t:'clienterr',msg:NS.err+' '+String(e&&e.stack||'').slice(0,200)}));}}
+// snapshots are applied as they arrive, independent of requestAnimationFrame (which some setups run slowly or
+// throttle, e.g. a window on an external display): at most one apply per 30 ms; if several arrive in between only the
+// newest full state is applied and their one-shot events are merged, so a client can never fall behind its own queue
+function queueSnap(m){NS.recv++;if(!flushTimer)flushTimer=setTimeout(()=>{flushTimer=0;flushSnap();},Math.max(0,30-(performance.now()-lastApplyT)));
+ if(!pendSnap){pendSnap=m;return;}NS.coalesced++;const p=pendSnap;
+ m.R=p.R.concat(m.R);m.D=p.D.concat(m.D);m.K=p.K.concat(m.K).slice(-20);m.M=p.M.concat(m.M).slice(-40);m.F=p.F.concat(m.F).slice(-250);
+ m.S=performance.now()-p.__rt<300?p.S.concat(m.S).slice(-60):m.S;m.__rt=p.__rt;pendSnap=m;}
+function flushSnap(){if(!pendSnap)return;const m=pendSnap;pendSnap=null;if(mode!=='net')return;const t=performance.now();lastApplyT=t;
+ try{applySnap(m);}catch(e){netErr('snapshot',e);}NS.applyMs=NS.applyMs*.9+(performance.now()-t)*.1;NS.applied++;}
 function netConnect(){if(!/^https?:$/.test(location.protocol))return;try{ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');}catch(e){ws=null;return;}
- ws.onopen=()=>{netAvailable=true;wsFails=0;ws.__open=true;wsConn.send(JSON.stringify({t:'hello',name:myName()}));};
- ws.onmessage=ev=>{let m;try{m=JSON.parse(ev.data);}catch(e){return;}if(m.t==='version'){onSrvVersion(m);return;}if(m.t==='welcome')srvCid=m.cid;if(m.t==='lobby')srvLobby=m;if(netKind==='server')handleNet(m);};
- ws.onclose=()=>{if(ws&&!ws.__open)wsFails++;const srv=netKind==='server';const was=srv&&mode==='net';netAvailable=false;ws=null;srvLobby=null;if(srv){lobby=null;netKind=null;conn=null;}if(!srv){}else if(was){mode='local';state='menu';previewMap();msg('Disconnected from the LAN server.','#ff7a6a',me);}else if(state==='lobby'){state='menu';}setTimeout(netConnect,3000);};}
+ ws.onopen=()=>{netAvailable=true;wsFails=0;ws.__open=true;NS.lastMsgT=performance.now();if(NS.lostT)NS.awaitT=NS.lastMsgT;wsConn.send(JSON.stringify({t:'hello',name:myName(),token:myToken,acks:true}));};
+ ws.onmessage=ev=>{const now=performance.now();NS.lastMsgT=now;NS.rxB+=ev.data.length;let m;try{m=JSON.parse(ev.data);}catch(e){return;}
+  if(m.t==='snap'){wsConn.send('{"t":"ack","n":'+(m.n|0)+'}');NS.seq=m.n|0;NS.srvSkipped=m.sk|0;if(NS.lastSnapT)NS.snapIv=NS.snapIv*.85+Math.min(1000,now-NS.lastSnapT)*.15;NS.lastSnapT=now;NS.rxN++;m.__rt=now;if(netKind==='server'&&mode==='net')queueSnap(m);return;}
+  if(m.t==='pong'){NS.rtt=Math.round(now-m.c);return;}
+  if(m.t==='version'){onSrvVersion(m);return;}if(m.t==='welcome')srvCid=m.cid;if(m.t==='lobby')srvLobby=m;
+  if(netKind==='server'){try{handleNet(m);}catch(e){netErr(m.t,e);}}};
+ ws.onclose=()=>{if(ws&&!ws.__open)wsFails++;const srv=netKind==='server';const was=srv&&mode==='net';netAvailable=false;ws=null;srvLobby=null;pendSnap=null;
+  if(was){   // in a match: keep the game on screen and rejoin it (the server hands the kingdom back)
+   if(!NS.lostT)NS.lostT=performance.now();NS.reconnects++;
+   if(performance.now()-NS.lostT>120000){NS.lostT=0;lobby=null;netKind=null;conn=null;mode='local';state='menu';previewMap();msg('Disconnected from the LAN server.','#ff7a6a',me);setTimeout(netConnect,3000);return;}
+   setTimeout(netConnect,1000);return;}
+  if(srv){lobby=null;netKind=null;conn=null;}if(srv&&state==='lobby')state='menu';setTimeout(netConnect,3000);};}
+// ping every 2 s (round-trip time for the overlay); a socket that delivered nothing for 12 s is half-open: reconnect
+setInterval(()=>{if(!ws||ws.readyState!==1)return;const now=performance.now();
+ if(NS.lostT&&NS.awaitT&&now-NS.awaitT>5000&&mode==='net'){NS.lostT=0;NS.awaitT=0;mode='local';state='lobby';previewMap();msg('Reconnected, but the game could not be rejoined (it ended, or the kingdom was taken).','#ffd27a',me);}if(now-NS.lastMsgT>12000){try{ws.close();}catch(e){}return;}wsConn.send(JSON.stringify({t:'ping',c:Math.round(now)}));
+ const dt=(now-NS.rxT)/1000;if(dt>=2){NS.rxRate=NS.rxB/1024/dt;NS.snapRate=NS.rxN/dt;NS.rxB=0;NS.rxN=0;NS.rxT=now;}},2000);
 // the server tells every page its version on connect (and when its update status changes). If the host app updated
 // itself and restarted, the reconnecting page sees a new version: reload it unless a game is running here.
 function onSrvVersion(m){srvVer=m.version;srvUpd=m;if(srvVerFirst==null){srvVerFirst=m.version;return;}if(m.version===srvVerFirst)return;
@@ -1371,14 +1411,15 @@ function handleNet(m){
  if(m.t==='welcome'){myCid=m.cid;}
  else if(m.t==='lobby'){lobby=m;}
  else if(m.t==='init')startNetGame(m);
- else if(m.t==='snap'){if(mode==='net')applySnap(m);}
  else if(m.t==='tolobby'){if(mode==='net'){mode='local';state='lobby';previewMap();}}
  else if(m.t==='err'){msg(m.msg,'#ff9a8a',me);}}
-function startNetGame(m){mode='net';me=m.you;difficulty=m.diff;fogOn=m.fog;setMapSize(m.size||'small');genMap(m.seed);tiles.set(m.tiles);resT.set(m.resT);resA.set(m.resA);
- units=[];blds=[];projs=[];parts=[];decals=[];msgs=[];pings=[];visMap={};cmap=new Map();bgrid=new Array(MAP*MAP).fill(null);time=0;gameOver=false;
+function startNetGame(m){const resync=mode==='net'&&NS.lostT>0&&players[m.you]&&me===m.you;const keepCam=resync?{x:cam.x,y:cam.y,z:cam.z}:null;
+ mode='net';me=m.you;difficulty=m.diff;fogOn=m.fog;setMapSize(m.size||'small');genMap(m.seed);tiles.set(m.tiles);resT.set(m.resT);resA.set(m.resA);
+ units=[];blds=[];projs=[];parts=[];decals=[];msgs=[];pings=[];visMap={};cmap=new Map();bgrid=new Array(MAP*MAP).fill(null);time=0;gameOver=false;pendSnap=null;
  players=m.players.map((q,i)=>({id:i,name:q.name,short:q.short,color:q.color,pers:q.pers,isHuman:q.isHuman,isAI:!q.isHuman,pname:q.pname,res:{food:0,wood:0,stone:0,gold:0},pop:0,popCap:10,surrendered:false,stats:{trained:0,killed:0,lost:0},keep:null}));
- startPlay();msg(`You rule the ${players[me].name}. Conquer every rival kingdom!`,rgb(players[me].color,1.3),me);}
-function applySnap(s){const now=performance.now();snapRecvT=now;snapT=s.tm;time=s.tm;gameOver=!!s.go;
+ if(resync){sel=[];vis=visMap[me]=updateVisFor(me);mmDirty=true;Object.assign(cam,keepCam);state=state==='paused'?'paused':(state==='won'||state==='lost')?state:'play';NS.lostT=0;msg('Reconnected to the server. Your kingdom is back under your command.','#bfe6a0',me);return;}
+ NS.lostT=0;startPlay();msg(`You rule the ${players[me].name}. Conquer every rival kingdom!`,rgb(players[me].color,1.3),me);}
+function applySnap(s){const now=performance.now();SNAP_DT=clamp(NS.snapIv/1000,1/30,.5);snapRecvT=now;snapT=s.tm;time=s.tm;gameOver=!!s.go;
  s.P.forEach((a,i)=>{const p=players[i];if(!p)return;p.res.food=a[0];p.res.wood=a[1];p.res.stone=a[2];p.res.gold=a[3];p.pop=a[4];p.popCap=a[5];p.surrendered=!!a[6];p.stats.trained=a[7];p.stats.killed=a[8];p.stats.lost=a[9];p.isHuman=!!a[10];p.isAI=!a[10];p.bell=!!a[11];});
  const seen=new Set();
  for(const a of s.U){const id=a[0];let u=cmap.get(id);const type=UT[a[1]];
@@ -1397,18 +1438,28 @@ function applySnap(s){const now=performance.now();snapRecvT=now;snapT=s.tm;time=
  for(const a of s.F)parts.push({x:a[0],y:a[1],z:a[2],vx:a[3],vy:a[4],vz:a[5],life:a[6],max:Math.max(a[6],.3),c:a[7],s:a[8],smoke:!!a[9]});
  for(const a of s.D)decals.push(a[0]===0?{k:'rubble',x:a[1],y:a[2],w:a[3],h:a[4],t:a[5]}:{k:'corpse',x:a[1],y:a[2],c:a[3],t:a[4]});
  for(const a of s.K)pings.push({x:a[0],y:a[1],t:a[2],o:a[3]});
- AU.events(s.S);
+ if(!s.__rt||now-s.__rt<400)AU.events(s.S);   // stale sounds are dropped
  for(const a of s.M)msgs.push({t:a[0],c:a[1],to:a[2],rt:Date.now()});if(msgs.length>40)msgs.splice(0,msgs.length-40);
  if(sel.some(e=>e.dead))sel=sel.filter(e=>!e.dead);
  snapCount++;if(snapCount%3===0){vis=updateVisFor(me);}}
 let snapCount=0;
 function netFrame(dt){const now=performance.now();const a=clamp((now-snapRecvT)/(SNAP_DT*1000),0,1);time=snapT+Math.min((now-snapRecvT)/1000,.25);
- for(const u of units){u.x=u.ox+(u.nx-u.ox)*a;u.y=u.oy+(u.ny-u.oy)*a;u.anim+=dt;}
+ for(const u of units){u.x=u.ox+(u.nx-u.ox)*a;u.y=u.oy+(u.ny-u.oy)*a;u.anim+=Math.min(dt,.1);}
  for(const p of projs)p.life=Math.min(p.dur,p.life+dt);
- for(const q of parts){q.life-=dt;q.x+=q.vx*dt;q.y+=q.vy*dt;q.z+=q.vz*dt;q.vz-=80*dt;if(q.z<0){q.z=0;q.vx*=.5;q.vy*=.5;}}parts=parts.filter(q=>q.life>0);
- decals=decals.filter(d=>time-d.t<(d.k==='corpse'?12:90));
+ // effects age by real time (dt is not capped here): with capped ageing, slow frames let particles pile up faster than they expire
+ for(const q of parts){q.life-=dt;q.x+=q.vx*dt;q.y+=q.vy*dt;q.z+=q.vz*dt;q.vz-=80*dt;if(q.z<0){q.z=0;q.vx*=.5;q.vy*=.5;}}parts=parts.filter(q=>q.life>0);if(parts.length>800)parts.splice(0,parts.length-800);
+ decals=decals.filter(d=>time-d.t<(d.k==='corpse'?12:90));if(decals.length>600)decals.splice(0,decals.length-600);
  visT-=dt;if(visT<=0){visT=.2;updateVisFor(me);}}
-
+// banner while the server is silent / the connection is being re-established; F3 overlay with the numbers
+function drawNetStatus(){if(mode!=='net'||!inGame())return;const now=performance.now();let t=null;
+ if(NS.lostT)t=`Connection lost — reconnecting… (${((now-NS.lostT)/1000)|0}s)`;
+ else if(NS.lastSnapT&&now-NS.lastSnapT>1500)t=`Connection lagging — no update from the server for ${((now-NS.lastSnapT)/1000).toFixed(1)}s`;
+ if(t){ctx.font='bold 14px Georgia, serif';const w=ctx.measureText(t).width+28;ctx.fillStyle='rgba(120,30,20,.9)';ctx.fillRect(W/2-w/2,44,w,26);text(t,W/2,62,'#fff0d0','bold 14px Georgia, serif','center');}
+ if(!showNet)return;const L=[`ping ${NS.rtt} ms`,`last update ${NS.lastSnapT?((now-NS.lastSnapT)|0):'-'} ms ago`,`updates ${NS.snapRate.toFixed(1)}/s (every ${NS.snapIv|0} ms)`,
+  `server tick #${NS.seq}  game time ${fmtTime(snapT)}`,`skipped by server (slow link) ${NS.srvSkipped}`,`merged here (slow frames) ${NS.coalesced}`,`download ${NS.rxRate.toFixed(0)} KB/s`,
+  `apply ${NS.applyMs.toFixed(1)} ms  render ${renderMs.toFixed(1)} ms  ${fpsNow|0} fps`,`reconnects ${NS.reconnects}  errors ${NS.errN}`].concat(NS.err?['last error: '+NS.err.slice(0,60)]:[]);
+ const x=12,y=44,w=300;ctx.fillStyle='rgba(0,0,0,.72)';ctx.fillRect(x,y,w,16*L.length+26);text('Network (F3)',x+8,y+16,'#e8c870','bold 12px monospace');L.forEach((l,i)=>text(l,x+8,y+34+i*16,'#dde','12px monospace'));}
+let renderMs=0,fpsNow=60;
 // ===== client: menus =====
 function drawMenu(){uiBtns=[];tip=null;const [x,y]=overlayPanel(600,560);
  text('THE LOWLANDS',W/2,y+58,'#ffe7a8','bold 40px Georgia, serif','center');text('A real-time strategy of keeps, walls and war',W/2,y+86,'#cdbb90','italic 16px Georgia, serif','center');
@@ -1476,15 +1527,15 @@ let last=performance.now();
 function checkOutcome(){if(state!=='play'&&state!=='paused')return;const P=players[me];if(!P)return;
  const won=!P.surrendered&&players.every(q=>q===P||q.surrendered);
  if(P.surrendered||won){state=won?'won':'lost';AU.battle.reset();AU.play(won?'victory':'defeat');endShown=false;placing=null;endInfo={time,trained:P.stats.trained,killed:P.stats.killed,lost:P.stats.lost};}}
-function frame(now){const rdt=Math.max(0,(now-last)/1000),dt=Math.min(.1,rdt);last=now;
+function frame(now){const rdt=Math.max(0,(now-last)/1000),dt=Math.min(.1,rdt);last=now;lastFrameT=performance.now();if(rdt>0)fpsNow=fpsNow*.95+(1/rdt)*.05;
  try{
  if(mode==='local'&&(state==='play'||state==='won'||state==='lost')&&!showHelp){simAcc+=Math.min(rdt,.25);let n=0;while(simAcc>=STEP&&n<8){sim(STEP);simAcc-=STEP;n++;}if(n>=8)simAcc=0;}
  if(mode==='local'){if(sfxEv.length)AU.events(sfxEv.splice(0));}
- if(mode==='net'&&inGame())netFrame(dt);
+ if(mode==='net'){flushSnap();if(inGame())netFrame(Math.min(rdt,1));}
  if(inGame()){vis=visMap[me]||vis;checkOutcome();pings=pings.filter(p=>time-p.t<20);if(endShown&&(state==='won'||state==='lost')){}}
  updateCamera(dt);
  if(state==='menu'||state==='lobby'){cam.x+=Math.sin(now/9000)*0.3;renderWorld(true);if(state==='menu'){if(showHelp)drawHelp();else drawMenu();}else drawLobby();AU.panel(16,H-144);drawTip();}
- else{renderWorld(false);drawUI();if(showHelp)drawHelp();else if(state==='paused')drawPause();else if((state==='won'||state==='lost')&&!endShown)drawEnd();}
+ else{const r0=performance.now();renderWorld(false);renderMs=renderMs*.9+(performance.now()-r0)*.1;drawUI();drawNetStatus();if(showHelp)drawHelp();else if(state==='paused')drawPause();else if((state==='won'||state==='lost')&&!endShown)drawEnd();}
  }catch(err){console.error(err);window.__lastError=String(err&&err.stack||err);}
  requestAnimationFrame(frame);}
 previewMap();netConnect();requestAnimationFrame(frame);

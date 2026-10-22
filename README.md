@@ -130,6 +130,24 @@ The Lowlands LAN server running.
 
 If other PCs can't connect, allow the port (default 8080) through the host's firewall.
 
+### Lag, freezes and dropped connections
+Since v1.2.2 a slow or briefly stalled connection (weak Wi-Fi, a busy laptop) can no longer freeze one player's game:
+- **Only fresh updates are sent.** Each page confirms every world update it receives. If one player's connection falls
+  behind by more than 3 updates, the server skips updates for that player instead of queueing them, so their view is
+  never more than about a fifth of a second old. Before, a queue could build up and that player's game slowly froze
+  while everyone else's carried on.
+- **Smaller updates:** world updates are compressed (permessage-deflate, about 4× smaller).
+- **Updates don't wait for the screen:** a page applies updates as they arrive, not when it draws a frame (browsers can
+  throttle frames, e.g. for a window on an external display). If several arrive at once, only the newest is applied.
+- **Automatic reconnect:** if the connection drops, the page shows *Connection lost — reconnecting…*, reconnects by
+  itself and gets the same kingdom back; the AI only rules it in between. A *Connection lagging* banner appears when
+  no update has arrived for 1.5 s, and a connection that stays silent for about 20 s is closed and re-opened.
+- **F3** shows the network status: ping, time since the last update, updates per second, server tick, updates
+  skipped for a slow link, reconnects and client errors. The server also serves the same numbers at `/stats`.
+- **Slow servers** (e.g. a Synology DS918) no longer fall into long catch-up bursts: the server simulates at most
+  4 steps per tick and sends at most 15 updates per second. Unreachable path targets (walled-in or across water)
+  no longer cost ~50 ms of pathfinding each.
+
 ### How sync works
 The server is authoritative. `server.js` pulls the simulation code out of `index.html`
 (the part between `/*SIM-BEGIN*/` and `/*SIM-END*/`) and runs it in a Node `vm` sandbox.
@@ -411,10 +429,14 @@ npm test                     # two simulated WebSocket clients: lobby, start, co
 node test/rules-test.js      # gather claim slots, Keep/Fortress fire rates + range, garrison arrows + merging, peasant construction/repair/refunds, free placement,
                              # builder auto-start, stuck watchdog + no-stuck soak, garrisons + Town Bell (+ AI bell), doubled resource nodes, map sizes
 node test/sim-test.js [ai] [small|medium|large] [minutes]   # headless soak: AI economy, building, waves, surrender, tick cost
+node test/net-soak-test.js   # 3-player server soak, 2 min (SOAK_SEC=120 SPEED=5 LINK_KBS=40): server at 5× load ≈ a Celeron J3455,
+                             # tick budget, 15 updates/s, compressed size, slow + stalling link stays current, reconnect + resync,
+                             # half-open socket dropped, memory
 npm i --no-save puppeteer-core            # once, for the two browser tests (needs a local Chrome/Chromium)
 CHROME=/usr/bin/google-chrome node test/audio-test.js   # headless Chrome: audio gating, BattleTimer unit test, SFX, sliders, LAN battle music
 CHROME=/usr/bin/google-chrome node test/ui-test.js      # headless Chrome: build hotkeys, context keys, garrison/bell/repair UI,
-                                                        # map-size menu, LAN lobby map size, LAN building + bell
+                                                        # map-size menu, LAN lobby map size, LAN building + bell, zoomed-out redraw,
+                                                        # busy-page catch-up, F3 overlay, lag banner, reconnect
 node test/updater-test.js            # self-updater against a local fake GitHub release server (builds an old + a new app):
                                      # offline/hanging/rate-limited checks, LOWLANDS_NO_UPDATE, size + SHA-256, no restart mid-game,
                                      # swap + restart on the same port, browser tab reload, start.sh restart loop

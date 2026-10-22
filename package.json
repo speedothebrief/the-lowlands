@@ -1,6 +1,6 @@
 {
   "name": "the-lowlands",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Real-time strategy browser game with a LAN multiplayer server",
   "main": "server.js",
   "scripts": {
@@ -12,7 +12,8 @@
     "test:ui": "node test/ui-test.js",
     "build:host": "node host/build.js",
     "test:host": "node test/host-app-test.js",
-    "test:updater": "node test/updater-test.js"
+    "test:updater": "node test/updater-test.js",
+    "test:netsoak": "node test/net-soak-test.js"
   },
   "dependencies": {
     "ws": "^8.18.0"

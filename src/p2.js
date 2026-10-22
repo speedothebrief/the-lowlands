@@ -36,7 +36,7 @@ function killEnt(e,by){
   decals.push({k:'corpse',x:e.x,y:e.y,t:time,c:players[e.owner].color});
   for(let i=0;i<6;i++)parts.push({x:e.x,y:e.y,z:6,vx:rr(-1.5,1.5),vy:rr(-1.5,1.5),vz:rr(10,40),life:.7,max:.7,c:'#8a1010',s:2});
  }else{
-  for(let y=e.ty;y<e.ty+e.h;y++)for(let x=e.tx;x<e.tx+e.w;x++)if(bgrid[y*MAP+x]===e)bgrid[y*MAP+x]=null;
+  for(let y=e.ty;y<e.ty+e.h;y++)for(let x=e.tx;x<e.tx+e.w;x++)if(bgrid[y*MAP+x]===e)bgrid[y*MAP+x]=null;passGen++;
   decals.push({k:'rubble',x:e.tx,y:e.ty,w:e.w,h:e.h,t:time});sfx('fall',e.x,e.y,e.owner,e.w);
   if(e.gar&&e.gar.length){const n=ejectAll(e,true);if(n&&players[e.owner].isHuman)msg(`${n} units fled the burning ${BLD[e.type].name}!`,'#ff8a6a',e.owner);}
   for(let i=0;i<14*e.w;i++)parts.push({x:e.x+rr(-e.w/2,e.w/2),y:e.y+rr(-e.h/2,e.h/2),z:rr(0,30),vx:rr(-1,1),vy:rr(-1,1),vz:rr(5,40),life:1.2,max:1.2,c:rnd()<.5?'#777':'#5a4a3a',s:3});
@@ -123,7 +123,7 @@ function peasantUpdate(u,dt){
   if(resT[i]!==RT[j.rt]){if(claim&&claim[i]===u.id)claim[i]=0;const n=nearestRes(RT[j.rt],j.tx,j.ty,12,true,u);if(!n){u.job=null;if(u.carry>0)startReturn(u);else u.state='idle';return;}j.tx=n[0];j.ty=n[1];i=j.ty*MAP+j.tx;if(claim)claim[i]=u.id;u.path=null;u.pend=null;u.approach=null;}
   const cx=j.tx+.5,cy=j.ty+.5;const d=Math.max(Math.abs(u.x-cx),Math.abs(u.y-cy));
   if(d<=1.3&&!u.pend){u.path=null;u.working=true;u.gfail=0;const sdx=(cx-cy)-(u.x-u.y);if(Math.abs(sdx)>.05)u.dir=sdx>0?1:-1;
-   u.gt+=dt*GRATE[j.rt]*mult;while(u.gt>=1){u.gt-=1;resA[i]-=1;u.carry++;u.carryT=j.rt;if(u.carry%3===0)sfx(j.rt==='wood'?'chop':'mine',cx,cy,u.owner,RT[j.rt]);if(resA[i]<=0){resT[i]=0;if(claim)claim[i]=0;resEvents.push(i);mmDirty=true;if(j.rt==='wood')parts.push({x:cx,y:cy,z:10,vx:0,vy:0,vz:20,life:.6,max:.6,c:'#3d6b2a',s:5});break;}if(u.carry>=CAP)break;}}
+   u.gt+=dt*GRATE[j.rt]*mult;while(u.gt>=1){u.gt-=1;resA[i]-=1;u.carry++;u.carryT=j.rt;if(u.carry%3===0)sfx(j.rt==='wood'?'chop':'mine',cx,cy,u.owner,RT[j.rt]);if(resA[i]<=0){resT[i]=0;passGen++;if(claim)claim[i]=0;resEvents.push(i);mmDirty=true;if(j.rt==='wood')parts.push({x:cx,y:cy,z:10,vx:0,vy:0,vz:20,life:.6,max:.6,c:'#3d6b2a',s:5});break;}if(u.carry>=CAP)break;}}
   else if(!hasPath(u)){u.gfail++;if(u.gfail>4){if(claim&&claim[i]===u.id)claim[i]=0;avoidNode(u,i);const n=nearestRes(RT[j.rt],u.x,u.y,6,true,u);if(n&&u.gfail<8){j.tx=n[0];j.ty=n[1];claim&&(claim[j.ty*MAP+j.tx]=u.id);}else{u.job=null;u.state='idle';return;}}
    const a=nearestFree(j.tx,j.ty,u.x,u.y,u.owner,1);if(!a){u.gfail+=2;return;}
    goTo(u,a[0]+.5,a[1]+.5);}
@@ -198,7 +198,7 @@ function surrender(p,by,why){if(p.surrendered)return;p.surrendered=true;p.surT=t
  else msg(`${p.name} has collapsed!`,rgb(p.color,1.3));
  if(p.isHuman)msg(why==='keep'?'Your Keep has fallen. Your kingdom is defeated.':'Your kingdom has surrendered.','#ff7a6a',p.id);
  for(const u of units)if(u.owner===p.id&&!u.dead){u.dead=true;for(let i=0;i<4;i++)parts.push({x:u.x,y:u.y,z:5,vx:rr(-.5,.5),vy:rr(-.5,.5),vz:rr(5,20),life:1,max:1,c:'#ddd',s:3});}
- for(const b of blds)if(b.owner===p.id&&!b.dead){b.dead=true;for(let y=b.ty;y<b.ty+b.h;y++)for(let x=b.tx;x<b.tx+b.w;x++)if(bgrid[y*MAP+x]===b)bgrid[y*MAP+x]=null;decals.push({k:'rubble',x:b.tx,y:b.ty,w:b.w,h:b.h,t:time});}
+ for(const b of blds)if(b.owner===p.id&&!b.dead){b.dead=true;for(let y=b.ty;y<b.ty+b.h;y++)for(let x=b.tx;x<b.tx+b.w;x++)if(bgrid[y*MAP+x]===b)bgrid[y*MAP+x]=null;passGen++;decals.push({k:'rubble',x:b.tx,y:b.ty,w:b.w,h:b.h,t:time});}
  mmDirty=true;sel=sel.filter(e=>!e.dead);checkEnd();}
 function checkEnd(){const alive=players.filter(q=>!q.surrendered);if(alive.length<=1||!alive.some(q=>q.isHuman)){if(!gameOver){gameOver=true;gameOverT=time;}}}
 let gameOverT=0;
