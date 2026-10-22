@@ -1,6 +1,6 @@
 'use strict';
 // ===== The Lowlands — single-file RTS =====
-let MAP=96, MAPSZ='small';const STEP=1/30, CAP=10, PH=150;
+let MAP=96, MAPSZ='small';const STEP=1/30, CAP=10, PH=150, POP_MAX=200;   // population cap (Houses +8, Keep/Fortress +10)
 const MAPSIZES={small:{f:1,label:'Small'},medium:{f:1.5,label:'Medium'},large:{f:2,label:'Large'}};
 
 let seed=1;
@@ -19,7 +19,7 @@ const UNITS={
  spearman:{name:'Spearman',hp:95,atk:8,range:0.7,cd:1.1,speed:1.6,sight:7,cost:{food:50,wood:25},time:13,pop:1,cls:'inf',val:75,desc:'Sturdy infantry. x3 damage vs knights.'},
  archer:{name:'Archer',hp:60,atk:7,range:5.5,cd:1.5,speed:1.6,sight:8,cost:{food:30,wood:40,gold:15},time:14,pop:1,cls:'rng',val:85,proj:'arrow',desc:'Ranged. Good vs infantry, weak vs knights.'},
  knight:{name:'Knight',hp:170,atk:13,range:0.8,cd:1.3,speed:2.7,sight:8,cost:{food:80,gold:75},time:20,pop:2,cls:'cav',val:155,desc:'Fast heavy cavalry. Crushes archers & siege.'},
- catapult:{name:'Catapult',hp:130,atk:34,range:8.5,minRange:2.2,cd:4.5,speed:0.9,sight:9,cost:{wood:150,stone:60,gold:60},time:28,pop:3,cls:'siege',val:270,proj:'stone',splash:1.1,desc:'Long-range siege. Devastating vs buildings.'},
+ catapult:{name:'Catapult',hp:130,atk:34,range:8.5,minRange:2.2,cd:4.5,speed:0.9,sight:12,cost:{wood:150,stone:60,gold:60},time:28,pop:3,cls:'siege',val:270,proj:'stone',splash:1.1,desc:'Long-range siege (range 8.5, sees 12 tiles). Devastating vs buildings.'},
 };
 const BONUS={peasant:{bld:0.3},spearman:{cav:3,bld:0.5},archer:{inf:1.25,cav:0.7,bld:0.15,siege:0.6},knight:{rng:1.6,siege:1.5,bld:0.5},catapult:{bld:3.5,inf:0.8,cav:0.6,rng:0.8,siege:1.5},tower:{cav:0.9,siege:0.8},fortb:{bld:0.25}};
 const ALLRES=['food','wood','stone','gold'];
@@ -150,12 +150,16 @@ let HI=new Int32Array(NN*8),HF=new Float32Array(NN*8);
 // connected regions per owner (flood fill, recomputed lazily after buildings/resources change): a goal in another
 // region (walled in, across water...) can't be reached, so the search gets a small budget for a best-effort approach
 // instead of exhausting the full expansion cap - those failed searches were the server's worst CPU spikes (~50 ms)
-let passGen=1;const regions={};
+let passGen=1,regionQ=null;const regions={},passGrids={};
+// per-owner passability grid (1 = walkable), rebuilt lazily when passGen changes; A* reads it instead of calling passable()
+function passGrid(owner){let R=passGrids[owner];if(R&&R.gen===passGen&&R.g.length===MAP*MAP)return R.g;const g=(R&&R.g.length===MAP*MAP)?R.g:new Uint8Array(MAP*MAP);
+ for(let y=0,i=0;y<MAP;y++)for(let x=0;x<MAP;x++,i++)g[i]=passable(x,y,owner)?1:0;passGrids[owner]={gen:passGen,g};return g;}
 function regionOf(owner){let R=regions[owner];if(R&&R.gen===passGen&&R.lab.length===MAP*MAP)return R.lab;
- const lab=(R&&R.lab.length===MAP*MAP)?R.lab:new Int32Array(MAP*MAP);lab.fill(0);let n=0;const q=new Int32Array(MAP*MAP);
- for(let i0=0;i0<MAP*MAP;i0++){if(lab[i0]||!passable(i0%MAP,(i0/MAP)|0,owner))continue;n++;let h=0,t=0;q[t++]=i0;lab[i0]=n;
-  while(h<t){const c=q[h++],cx=c%MAP,cy=(c/MAP)|0;for(let d=0;d<8;d++){const nx=cx+DX[d],ny=cy+DY[d];if(nx<0||ny<0||nx>=MAP||ny>=MAP)continue;const ni=ny*MAP+nx;if(lab[ni]||!passable(nx,ny,owner))continue;
-   if(d>=4&&(!passable(nx,cy,owner)||!passable(cx,ny,owner)))continue;lab[ni]=n;q[t++]=ni;}}}
+ const lab=(R&&R.lab.length===MAP*MAP)?R.lab:new Int32Array(MAP*MAP);lab.fill(0);let n=0;if(!regionQ||regionQ.length!==MAP*MAP)regionQ=new Int32Array(MAP*MAP);const q=regionQ;
+ const PG=passGrid(owner);
+ for(let i0=0;i0<MAP*MAP;i0++){if(lab[i0]||!PG[i0])continue;n++;let h=0,t=0;q[t++]=i0;lab[i0]=n;
+  while(h<t){const c=q[h++],cx=c%MAP,cy=(c/MAP)|0;for(let d=0;d<8;d++){const nx=cx+DX[d],ny=cy+DY[d];if(nx<0||ny<0||nx>=MAP||ny>=MAP)continue;const ni=ny*MAP+nx;if(lab[ni]||!PG[ni])continue;
+   if(d>=4&&(!PG[cy*MAP+nx]||!PG[ny*MAP+cx]))continue;lab[ni]=n;q[t++]=ni;}}}
  regions[owner]={gen:passGen,lab};return lab;}
 function findPath(sx,sy,gx,gy,owner){
  sx=clamp(sx|0,0,MAP-1);sy=clamp(sy|0,0,MAP-1);gx=clamp(gx|0,0,MAP-1);gy=clamp(gy|0,0,MAP-1);
@@ -166,22 +170,23 @@ function findPath(sx,sy,gx,gy,owner){
  const pop=()=>{const top=HI[0];hl--;if(hl>0){const li=HI[hl],lf=HF[hl];let k=0;for(;;){let c=2*k+1;if(c>=hl)break;if(c+1<hl&&HF[c+1]<HF[c])c++;if(HF[c]>=lf)break;HI[k]=HI[c];HF[k]=HF[c];k=c;}HI[k]=li;HF[k]=lf;}return top;};
  // weighted A* (w=1.35): near-optimal paths with far fewer expansions on the big maps
  const h=(x,y)=>{const dx=Math.abs(x-gx),dy=Math.abs(y-gy);return (dx+dy-0.5858*Math.min(dx,dy))*1.35;};
+ const PG=passGrid(owner),M1=MAP-1;
  const si=sy*MAP+sx,gi=gy*MAP+gx;gS[si]=0;stO[si]=stamp;from[si]=-1;push(si,h(sx,sy));
  let best=si,bestH=h(sx,sy),exp=0;
  while(hl>0&&hl<HI.length-16){const cur=pop();if(stC[cur]===stamp)continue;stC[cur]=stamp;
   if(cur===gi){best=cur;break;}
   const cx=cur%MAP,cy=(cur/MAP)|0;const hc=h(cx,cy);if(hc<bestH){bestH=hc;best=cur;}
   if(++exp>expCap)break;
-  for(let d=0;d<8;d++){const nx=cx+DX[d],ny=cy+DY[d];if(!passable(nx,ny,owner))continue;
-   if(d>=4&&(!passable(nx,cy,owner)||!passable(cx,ny,owner)))continue;
-   const ni=ny*MAP+nx;if(stC[ni]===stamp)continue;const ng=gS[cur]+(d>=4?1.4142:1);
+  for(let d=0;d<8;d++){const nx=cx+DX[d],ny=cy+DY[d];if(nx<0||ny<0||nx>M1||ny>M1)continue;const ni=ny*MAP+nx;if(!PG[ni])continue;
+   if(d>=4&&(!PG[cy*MAP+nx]||!PG[ny*MAP+cx]))continue;if(stC[ni]===stamp)continue;const ng=gS[cur]+(d>=4?1.4142:1);
    if(stO[ni]!==stamp||ng<gS[ni]){stO[ni]=stamp;gS[ni]=ng;from[ni]=cur;push(ni,ng+h(nx,ny));}}}
  const pts=[];let c=best,g=0;while(c!==-1&&c!==si&&g++<NN){pts.push([c%MAP+.5,((c/MAP)|0)+.5]);c=from[c];}
  pathExp-=exp;pts.reverse();return pts;}
 function lineClear(x0,y0,x1,y1,owner){const d=Math.hypot(x1-x0,y1-y0);if(d<0.01)return passable(Math.floor(x1),Math.floor(y1),owner);
- const n=Math.ceil(d/0.25);const px=-(y1-y0)/d*0.2,py=(x1-x0)/d*0.2;
+ const n=Math.ceil(d/0.25);const px=-(y1-y0)/d*0.2,py=(x1-x0)/d*0.2,PG=passGrid(owner);   // same result as passable(), from the cached grid
  for(let k=1;k<=n;k++){const t=k/n;const x=x0+(x1-x0)*t,y=y0+(y1-y0)*t;
-  if(!passable(Math.floor(x+px),Math.floor(y+py),owner)||!passable(Math.floor(x-px),Math.floor(y-py),owner))return false;}
+  const ax=Math.floor(x+px),ay=Math.floor(y+py),bx=Math.floor(x-px),by=Math.floor(y-py);
+  if(ax<0||ay<0||ax>=MAP||ay>=MAP||!PG[ay*MAP+ax]||bx<0||by<0||bx>=MAP||by>=MAP||!PG[by*MAP+bx])return false;}
  return true;}
 function smooth(sx,sy,pts,owner){if(pts.length<2)return pts;const out=[];let cx=sx,cy=sy,i=0;
  while(i<pts.length){let j=Math.min(pts.length-1,i+14);while(j>i&&!lineClear(cx,cy,pts[j][0],pts[j][1],owner))j--;out.push(pts[j]);cx=pts[j][0];cy=pts[j][1];i=j+1;}
@@ -189,8 +194,25 @@ function smooth(sx,sy,pts,owner){if(pts.length<2)return pts;const out=[];let cx=
 function goTo(u,x,y){u.repathT=time;u.goal={x,y};
  if(!(u.stuckN>=2)&&lineClear(u.x,u.y,x,y,u.owner)){u.path=[[x,y]];u.pend=null;return;}
  u.path=[];u.pend={x,y};}
+// long paths are shared: a unit starting within 8 tiles of a recent long path's start and heading within 4 tiles of its goal
+// (an army ordered across the map) reuses that raw A* path, joined at both ends by straight, clear lines. Entries die when
+// passability changes or after 8 s.
+const pathCache=new Map();let pathCacheGen=-1,pathHits=0;
+function sharedPath(u,tx,ty,x,y){if(pathCacheGen!==passGen){pathCache.clear();pathCacheGen=passGen;}
+ const E=pathCache.get(u.owner);if(!E)return null;let tries=0;
+ for(let n=E.length-1;n>=0&&tries<3;n--){const e=E[n];if(time-e.t>8)break;
+  if(Math.abs(e.gx-tx)>4||Math.abs(e.gy-ty)>4||Math.abs(e.sx-u.x)>8||Math.abs(e.sy-u.y)>8)continue;tries++;
+  const P=e.p,L=P.length;let i0=-1,i1=-1;
+  for(let i=Math.min(11,L-1);i>=0;i--)if(lineClear(u.x,u.y,P[i][0],P[i][1],u.owner)){i0=i;break;}if(i0<0)continue;
+  if(!e.full||(e.gx===tx&&e.gy===ty)){pathHits++;return P.slice(i0);}   // same goal tile, or a capped (partial) search: share it as is (a partial one is re-planned at its end)
+  for(let i=Math.max(i0,L-8);i<L;i++)if(lineClear(P[i][0],P[i][1],x,y,u.owner)){i1=i;break;}if(i1<0)continue;
+  pathHits++;const out=P.slice(i0,i1+1);out.push([tx+.5,ty+.5]);return out;}
+ return null;}
 function computePath(u){const {x,y}=u.pend;u.pend=null;const tx=Math.floor(x),ty=Math.floor(y);
- const p=findPath(Math.floor(u.x),Math.floor(u.y),tx,ty,u.owner);if(!p){u.path=[];return;}
+ const far=Math.abs(tx-u.x)+Math.abs(ty-u.y)>16,hit=far?sharedPath(u,tx,ty,x,y):null;
+ const p=hit||findPath(Math.floor(u.x),Math.floor(u.y),tx,ty,u.owner);if(!p){u.path=[];return;}
+ if(!hit&&far&&p.length>=12){const last=p[p.length-1];let E=pathCache.get(u.owner);if(!E)pathCache.set(u.owner,E=[]);
+  E.push({sx:u.x,sy:u.y,gx:tx,gy:ty,p,t:time,full:Math.floor(last[0])===tx&&Math.floor(last[1])===ty});if(E.length>24)E.shift();}
  const sp=u.stuckN>=2?p.slice():smooth(u.x,u.y,p,u.owner);
  if(passable(tx,ty,u.owner)){if(sp.length&&Math.floor(sp[sp.length-1][0])===tx&&Math.floor(sp[sp.length-1][1])===ty)sp[sp.length-1]=[x,y];else if(!sp.length)sp.push([x,y]);}
  u.path=sp;}

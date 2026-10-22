@@ -2,13 +2,14 @@
 // real time (= a CPU SPEED× slower, e.g. 5 ≈ a Synology DS918 / Celeron J3455), for SOAK_SEC wall seconds.
 // Player C is on a slow, stalling link; player B drops its connection and rejoins; a 4th, lobby-only client goes
 // half-open. Checks timing, size and lag budgets.   usage: node test/net-soak-test.js   (SOAK_SEC=120 SPEED=5 LINK_KBS=40)
+// SOAK_POP=1: every kingdom starts at the population cap (~200 each, ~600 units, big battles) -> npm run test:netsoak:pop
 'use strict';
 const {spawn}=require('child_process');const path=require('path');const WebSocket=require('ws');
 const PORT=8126,SPEED=+(process.env.SPEED||5),SEC=+(process.env.SOAK_SEC||120);
 let fails=0;const ok=(c,m)=>{console.log((c?'PASS ':'FAIL ')+m);if(!c)fails++;};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-const srv=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT,LOWLANDS_NO_UPDATE:'1',LOWLANDS_TEST_AUTOPLAY:'1',LOWLANDS_TEST_SPEED:String(SPEED)}});
-let srvOut='';srv.stdout.on('data',d=>srvOut+=d);srv.stderr.on('data',d=>{srvOut+=d;process.stderr.write(d);});
+const srv=spawn(process.execPath,[...(process.env.SOAK_NODE_ARGS?process.env.SOAK_NODE_ARGS.split(' '):[]),path.join(__dirname,'..','server.js')],{env:{...process.env,PORT,LOWLANDS_NO_UPDATE:'1',LOWLANDS_TEST_AUTOPLAY:'1',LOWLANDS_TEST_SPEED:String(SPEED),LOWLANDS_TEST_FILLPOP:process.env.SOAK_POP?'1':''}});
+let srvOut='';srv.stdout.on('data',d=>{srvOut+=d;if(process.env.SOAK_SRVLOG)process.stdout.write(d);});srv.stderr.on('data',d=>{srvOut+=d;process.stderr.write(d);});
 const stats=async()=>(await fetch(`http://127.0.0.1:${PORT}/stats`)).json();
 let latestTm=0;   // newest game time seen by any fast client
 function client(name,token,o={}){return new Promise(res=>{const ws=new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
@@ -16,7 +17,7 @@ function client(name,token,o={}){return new Promise(res=>{const ws=new WebSocket
  ws.on('message',d=>{const m=JSON.parse(d);if(m.t==='welcome')c.cid=m.cid;if(m.t==='lobby')c.lobby=m;if(m.t==='init')c.inits.push(m);
   if(m.t==='snap'){c.snaps++;c.last=m;c.sk=m.sk;if(o.fast)latestTm=Math.max(latestTm,m.tm);else c.lags.push({t:Date.now(),lag:Math.max(0,latestTm-m.tm)/SPEED});
    if(o.acks!==false)ws.send('{"t":"ack","n":'+m.n+'}');}});
- ws.on('error',()=>{});ws.on('open',()=>{c.send({t:'hello',name,token,acks:o.acks!==false});res(c);});});}
+ ws.on('error',()=>{});ws.on('open',()=>{c.send({t:'hello',name,token,acks:o.acks!==false,delta:o.acks!==false});res(c);});});}
 (async()=>{
  for(let i=0;i<50&&!srvOut.includes('LAN server running');i++)await sleep(100);
  const A=await client('Alice','tokenAAAAAAAAAAAAAAAA',{fast:true}),B=await client('Bob','tokenBBBBBBBBBBBBBBBB',{fast:true}),C=await client('Cleo','tokenCCCCCCCCCCCCCCCC');
@@ -40,9 +41,11 @@ function client(name,token,o={}){return new Promise(res=>{const ws=new WebSocket
  clearInterval(thr);sock.resume();
  const secs=wall(),gameMin=latestTm/60;const last=samples[samples.length-1];
  ok(gameMin>=SEC*SPEED/60*.85,`the server keeps up at ${SPEED}× load: ${gameMin.toFixed(1)} game-minutes in ${secs.toFixed(0)} s (${(latestTm/secs).toFixed(2)}× real time)`);
- const tk=samples.map(s=>s.tickMs);ok(Math.max(...tk)<20&&last.droppedMs<SEC*1000*.02,`server tick cost stays in budget (worst 1-s average ${Math.max(...tk).toFixed(1)} ms, longest tick ${Math.max(...samples.map(s=>s.tickMax)).toFixed(0)} ms, ${last.droppedMs} ms of backlog dropped)`);
+ // POP mode: ~600 units at 5x on this box mean ~5 Celeron cores' worth; a mass army launch costs one burst of slow ticks,
+ // so there the budget is a 60 ms worst 1-s average while dropped backlog keeps the same 2% limit
+ const tk=samples.map(s=>s.tickMs),TB=process.env.SOAK_POP?60:20;ok(Math.max(...tk)<TB&&last.droppedMs<SEC*1000*.02,`server tick cost stays in budget (worst 1-s average ${Math.max(...tk).toFixed(1)} ms, longest tick ${Math.max(...samples.map(s=>s.tickMax)).toFixed(0)} ms, ${last.droppedMs} ms of backlog dropped)`);
  const rate=(A.snaps-A0.snaps)/secs,kbs=(A.ws._socket.bytesRead-A0.bytes)/1024/secs;
- ok(rate>=13&&rate<=16,`fast client gets ~15 snapshots/s, not one per catch-up step (${rate.toFixed(1)}/s)`);
+ const POP=!!process.env.SOAK_POP;ok(POP?rate>=9&&rate<=16:rate>=13&&rate<=16,`fast client gets ~${POP?'10 (big armies)':'15'} snapshots/s, not one per catch-up step (${rate.toFixed(1)}/s)`);
  ok(kbs<60,`wire traffic per client stays small (${kbs.toFixed(1)} KB/s, last snapshot ${(last.lastSnapBytes/1024).toFixed(1)} KB uncompressed)`);
  ok(Math.max(...samples.map(s=>Math.max(0,...s.clients.map(c=>c.buffered))))<512*1024,`no socket queue grows (max buffered ${Math.max(...samples.map(s=>Math.max(0,...s.clients.map(c=>c.buffered))))} bytes)`);
  const thrLags=C.lags.filter(l=>!recoverAt||l.t<stallAt*1000+t0||l.t>recoverAt+3000).map(l=>l.lag).sort((a,b)=>a-b);const p95=thrLags[Math.floor(thrLags.length*.95)]||0;

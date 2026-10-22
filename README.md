@@ -170,7 +170,8 @@ The server is authoritative. `server.js` pulls the simulation code out of `index
 (the part between `/*SIM-BEGIN*/` and `/*SIM-END*/`) and runs it in a Node `vm` sandbox.
 That is the same code the browser runs in solo mode. Clients send only commands
 (move, attack, gather, build, train, rally, stop…). The server checks that the sender owns
-the units, runs the simulation at 30 ticks/s, and sends compact world snapshots at 15 Hz.
+the units, runs the simulation at 30 ticks/s, and sends compact world snapshots at 15 Hz (10 Hz once more than 450 units
+are on the map). Each client gets only the unit rows that changed since the snapshot it last acknowledged.
 Clients smooth unit movement between snapshots. Every client sees exactly the same world,
 so it cannot drift out of sync.
 
@@ -424,6 +425,11 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
   with room. Ring it again (or Unload) for the all-clear: everyone comes out and peasants resume gathering.
   The AI rings its own bell when a raiding force reaches its Keep and lets its peasants out
   about 8 s after the raiders leave.
+- **Population cap 200.** Each House gives +8 and the Keep and each Fortress +10, up to a cap of 200:
+  the Keep plus 24 Houses, or fewer with Fortresses. The AI keeps building Houses up to the cap.
+- **Catapults see 12 tiles**, beyond their 8.5-tile range, so they can spot their own targets.
+- **Big armies stay smooth.** Units of a group ordered across the map share one A* path, and snapshots carry only the
+  units that changed. A 3-player game at 200 pop each (about 600 units) stays within the server and bandwidth budgets.
 - **Crowd movement.** Walking units have right of way over idle ones, which step aside.
   Units meeting head-on both keep to their right. In a narrow gap or gate, the unit already in the gap goes first,
   and the other waits a moment. Whoever has waited longer gets priority next, with ties broken by unit id.

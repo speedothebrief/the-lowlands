@@ -15,8 +15,8 @@ if(a<0||b<0)throw new Error('index.html is missing the SIM-BEGIN/SIM-END markers
 // Run the exact same simulation code the browser uses, inside an isolated VM context.
 const sandbox=vm.createContext({console});
 vm.runInContext(html.slice(a,b)+`
-;globalThis.API={setupGame,sim,applyCmd,makeSnap,mapData,playersMeta,makeAI,makeHuman,surrender,STEP,KINGDOMS,
- get:()=>({players,time,gameOver,seed})};`,sandbox,{filename:'sim.js'});
+;globalThis.API={setupGame,sim,applyCmd,makeSnap,mapData,playersMeta,makeAI,makeHuman,surrender,STEP,KINGDOMS,spawnUnit,spawnBld,canPlace,BLD,UNITS,POP_MAX,
+ get:()=>({players,time,gameOver,seed,units})};`,sandbox,{filename:'sim.js'});
 const API=sandbox.API;
 
 const server=http.createServer((req,res)=>{
@@ -32,7 +32,7 @@ const wss=new WebSocketServer({noServer:true,maxPayload:256*1024,perMessageDefla
 // lobby + authoritative game loop
 const createRoom=require('./room.js');
 const room=createRoom(API,{log:m=>console.log(m),
- speed:+process.env.LOWLANDS_TEST_SPEED||1,autoplay:process.env.LOWLANDS_TEST_AUTOPLAY==='1'});   // test-only hooks (soak tests)
+ speed:+process.env.LOWLANDS_TEST_SPEED||1,autoplay:process.env.LOWLANDS_TEST_AUTOPLAY==='1',fillPop:process.env.LOWLANDS_TEST_FILLPOP==='1'});   // test-only hooks (soak tests)
 
 wss.on('connection',(ws,req)=>{
  ws.send(JSON.stringify(verMsg()));   // browsers show it in the menu and reload when it changes after an update

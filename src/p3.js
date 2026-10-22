@@ -42,7 +42,7 @@ function aiThink(p){
  if(t%10<1&&p.res.food<60&&cnt.food<peas.length*.25){const f=findFarm(p.id,k.x,k.y);const g=peas.find(u=>u.state!=='build'&&u.job&&u.job.rt==='wood');if(f&&g)assignFarm(g,f);}
  // --- buildings
  let under=myB.filter(b=>!b.built&&!BLD[b.type].wall).length;const want=[];
- if(p.popCap<150&&p.pop>=p.popCap-4&&!myB.some(b=>b.type==='house'&&!b.built))want.push('house');
+ if(p.popCap<POP_MAX&&p.pop>=p.popCap-4&&!myB.some(b=>b.type==='house'&&!b.built))want.push('house');
  const farms=count('farm');if((A.needFarm||farms*2<Math.ceil(peas.length*P.gather.food))&&farms<14)want.push('farm');
  if(count('lumber')<1&&t>12)want.push('lumber');
  if(count('mine')<1&&t>70)want.push('mine');
@@ -185,11 +185,11 @@ function setupGame(gseed,slots,diff,fog,size){
 function makeAI(pid){const p=players[pid];if(!p||p.surrendered||p.isAI)return;p.isAI=true;p.isHuman=false;initAI(p);msg(`${p.pname||p.short} left — ${p.name} is now ruled by the AI.`,'#cdbb90');checkEnd();}
 function makeHuman(pid,name){const p=players[pid];if(!p||p.surrendered||!p.isAI)return false;p.isAI=false;p.isHuman=true;if(name)p.pname=name;msg(`${p.pname||p.short} reconnected and rules ${p.name} again.`,'#cdbb90');return true;}
 function sim(dt){
- time+=dt;if(gameOver&&!players.some(q=>q.isHuman&&!q.surrendered)&&time-gameOverT>3)return;pathBudget=12;pathExp=60000;pathEmerg=4;rebuildHash();
+ time+=dt;if(gameOver&&!players.some(q=>q.isHuman&&!q.surrendered)&&time-gameOverT>3)return;pathBudget=12;pathExp=24000;pathEmerg=2;rebuildHash();
  for(const p of players){p.pop=0;p.popCap=0;}
  for(const u of units)if(!u.dead)players[u.owner].pop+=UNITS[u.type].pop;
  for(const b of blds)if(!b.dead&&b.built&&BLD[b.type].pop)players[b.owner].popCap+=BLD[b.type].pop;
- for(const p of players)p.popCap=Math.min(150,p.popCap);
+ for(const p of players)p.popCap=Math.min(POP_MAX,p.popCap);
  for(const b of blds)if(!b.dead)updateBld(b,dt);
  for(const u of units)if(!u.dead&&!u.inG)updateUnit(u,dt);
  separation();updateProjs(dt);

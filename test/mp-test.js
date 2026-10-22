@@ -6,14 +6,15 @@ const PORT=8123;let fails=0;const ok=(c,m)=>{console.log((c?'PASS ':'FAIL ')+m);
 const srv=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT,LOWLANDS_NO_UPDATE:'1'}});
 let srvOut='';srv.stdout.on('data',d=>srvOut+=d);srv.stderr.on('data',d=>{srvOut+=d;process.stderr.write(d);});
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-function client(name){return new Promise(res=>{const ws=new WebSocket(`ws://127.0.0.1:${PORT}/ws`);const c={ws,name,snaps:[],lobby:null,init:null,msgs:[],chats:[],hist:null,send:o=>ws.send(JSON.stringify(o))};
- ws.on('message',d=>{const m=JSON.parse(d);if(m.t==='welcome')c.cid=m.cid;if(m.t==='lobby')c.lobby=m;if(m.t==='init')c.init=m;if(m.t==='chat')c.chats.push(m);if(m.t==='chathist')c.hist=m.items;if(m.t==='snap'){c.snaps.push(m);if(c.snaps.length>400)c.snaps.shift();c.msgs.push(...m.M);}});
- ws.on('open',()=>{c.send({t:'hello',name});res(c);});});}
+// opt.delta: behaves like the browser (acks + delta unit snapshots, rebuilt locally like undeltaSnap in p7.js)
+function client(name,opt){opt=opt||{};const uh=new Map();return new Promise(res=>{const ws=new WebSocket(`ws://127.0.0.1:${PORT}/ws`);const c={ws,name,snaps:[],lobby:null,init:null,msgs:[],chats:[],hist:null,send:o=>ws.send(JSON.stringify(o))};
+ ws.on('message',d=>{const m=JSON.parse(d);if(m.t==='welcome')c.cid=m.cid;if(m.t==='lobby')c.lobby=m;if(m.t==='init')c.init=m;if(m.t==='chat')c.chats.push(m);if(m.t==='chathist')c.hist=m.items;if(m.t==='snap'){if(opt.delta){if(m.Ub!=null){c.deltas=(c.deltas||0)+1;const b=uh.get(m.Ub);if(!b){c.missing=(c.missing||0)+1;ws.send('{"t":"full"}');return;}const cur=new Map(b);for(const a of m.U)cur.set(a[0],a);for(const id of m.Ug)cur.delete(id);m.U=[...cur.values()];}uh.set(m.n,new Map(m.U.map(a=>[a[0],a])));for(const k of uh.keys())if(k<m.n-16)uh.delete(k);ws.send(JSON.stringify({t:'ack',n:m.n}));}c.snaps.push(m);if(c.snaps.length>400)c.snaps.shift();c.msgs.push(...m.M);}});
+ ws.on('open',()=>{c.send(opt.delta?{t:'hello',name,acks:true,delta:true}:{t:'hello',name});res(c);});});}
 (async()=>{
- for(let i=0;i<50&&!srvOut.includes('LAN server running');i++)await sleep(100);
+ for(let i=0;i<50&&!srvOut.includes('http://localhost:'+PORT);i++)await sleep(100);
  ok(srvOut.includes('http://localhost:'+PORT),'server prints URLs:\n'+srvOut.trim().split('\n').map(l=>'      '+l).join('\n'));
  const http=await fetch(`http://127.0.0.1:${PORT}/`);const body=await http.text();ok(http.status===200&&body.includes('/*SIM-BEGIN*/'),'server serves index.html');
- const A=await client('Alice'),B=await client('Bob');await sleep(300);
+ const A=await client('Alice'),B=await client('Bob',{delta:true});await sleep(300);
  ok(A.lobby&&A.lobby.host===A.cid,'first client is host');
  A.send({t:'slot',slot:0});B.send({t:'slot',slot:2});B.send({t:'slot',slot:0});await sleep(300);
  const sl=A.lobby.clients.map(c=>c.name+':'+c.slot).join(',');ok(sl.includes('Alice:0')&&sl.includes('Bob:2'),'slots claimed, no double-claim ('+sl+')');
@@ -57,8 +58,9 @@ function client(name){return new Promise(res=>{const ws=new WebSocket(`ws://127.
  ok(A.init.players.map(p=>p.isHuman).join()==='true,false,true,false','slots 1 and 3 are AI');
  ok(A.snaps.length>5&&B.snaps.length>5,`snapshots streaming (A ${A.snaps.length}, B ${B.snaps.length})`);
  // same tick => identical world state on both clients (server-authoritative)
- const strip=s=>JSON.stringify([s.tm,s.P,s.U,s.B,s.J]);let same=0,cmp=0;for(const sa of A.snaps){const sb=B.snaps.find(x=>x.tm===sa.tm);if(sb){cmp++;if(strip(sa)===strip(sb))same++;}}
- ok(cmp>3&&same===cmp,`world state identical for same tick on both clients (${same}/${cmp})`);
+ const strip=s=>JSON.stringify([s.tm,s.P,s.U.slice().sort((a,b)=>a[0]-b[0]),s.B,s.J]);let same=0,cmp=0;for(const sa of A.snaps){const sb=B.snaps.find(x=>x.tm===sa.tm);if(sb){cmp++;if(strip(sa)===strip(sb))same++;}}
+ ok(cmp>3&&same===cmp,`world state identical for same tick on both clients (${same}/${cmp}; Bob rebuilds units from ${B.deltas|0} delta snapshots, Alice gets full ones)`);
+ ok(B.deltas>5&&!B.missing,`delta snapshots always reference a base the client has (${B.deltas|0} deltas, ${B.missing|0} missing)`);
  // commands
  const last=c=>c.snaps[c.snaps.length-1];
  const aPeas=last(A).U.filter(u=>u[2]===0&&u[1]===0);const bKeep=last(B).B.find(b=>b[2]===2&&b[1]===0);

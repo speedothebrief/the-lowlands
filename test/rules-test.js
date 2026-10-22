@@ -6,7 +6,7 @@ const fs=require('fs'),vm=require('vm'),path=require('path');
 const html=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
 const src=html.slice(html.indexOf('/*SIM-BEGIN*/'),html.indexOf('/*SIM-END*/'));
 const c=vm.createContext({console});
-vm.runInContext(src+';globalThis.API={fortBldTarget,updateVisFor,setupGame,sim,applyCmd,nearestRes,spawnUnit,spawnBld,killEnt,makeSnap,canPlace,repairCost,RT,BLD,UNITS,STEP,RES_AMT,get:()=>({units,blds,players,claim,resT,resA,projs,MAP,STARTS,time})};',c);
+vm.runInContext(src+';globalThis.API={POP_MAX,fortBldTarget,updateVisFor,setupGame,sim,applyCmd,nearestRes,spawnUnit,spawnBld,killEnt,makeSnap,canPlace,repairCost,RT,BLD,UNITS,STEP,RES_AMT,get:()=>({units,blds,players,claim,resT,resA,projs,MAP,STARTS,time})};',c);
 const A=c.API;let fails=0;const ok=(v,m)=>{console.log((v?'PASS ':'FAIL ')+m);if(!v)fails++;};
 const run=sec=>{for(let s=0;s<Math.round(sec*30);s++)A.sim(A.STEP);};
 const my=(pid,ty)=>A.get().units.filter(u=>u.owner===pid&&(!ty||u.type===ty));
@@ -207,6 +207,13 @@ console.log('--- market trading (gold only, 4:1)');
  gt.built=true;gt.prog=1;gt.hp=gt.maxhp;const pz=A.spawnUnit('peasant',gx+1.5,gy-2.5,0);A.applyCmd(0,{t:'move',ids:[pz.id],x:gx+1.5,y:gy+2.5});run(8);
  ok(pz.y>gy+1.5,`own peasant walks through the new Gate (y ${pz.y.toFixed(1)})`);
  const ew=A.spawnBld('wall',gx+8,gy,1,true);P.res.stone=500;A.applyCmd(0,{t:'build',type:'gate',spots:[[gx+8,gy]],ids:[]});ok(!ew.dead&&!A.get().blds.some(b=>b.type==='gate'&&!b.dead&&b.tx===gx+8),'cannot place a Gate over an enemy wall');}
+
+console.log('--- population cap 200, catapult sight');
+{A.setupGame(8642,[{human:true}],'normal',false);g=A.get();const P=g.players[0],K=P.keep;let n=0;
+ for(let r=4;r<30&&n<30;r+=2)for(let a=0;a<24&&n<30;a++){const tx=Math.round(K.x+Math.cos(a/24*6.283)*r)-1,ty=Math.round(K.y+Math.sin(a/24*6.283)*r)-1;if(!A.canPlace('house',tx,ty,0,null)){A.spawnBld('house',tx,ty,0,true);n++;}}
+ run(.1);ok(A.POP_MAX===200&&P.popCap===200,`population cap is 200 (Keep + ${n} Houses -> ${P.popCap})`);
+ ok(10+24*A.BLD.house.pop>=200,'Keep + 24 Houses reach the cap');
+ ok(A.UNITS.catapult.sight===12&&A.UNITS.catapult.range===8.5,'catapult sight 12, range still 8.5');}
 
 console.log('--- Fortress shoots enemy buildings');
 {A.setupGame(1357,[{human:true}],'normal',true);g=A.get();const K=g.players[0].keep;

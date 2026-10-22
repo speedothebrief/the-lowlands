@@ -4,11 +4,11 @@
 <style>html,body{margin:0;height:100%;overflow:hidden;background:#0b0d10}canvas{display:block;cursor:default}</style></head>
 <body><canvas id="c"></canvas>
 <script>
-const APP_VERSION='1.3.1';
+const APP_VERSION='1.3.2';
 /*SIM-BEGIN*/
 'use strict';
 // ===== The Lowlands — single-file RTS =====
-let MAP=96, MAPSZ='small';const STEP=1/30, CAP=10, PH=150;
+let MAP=96, MAPSZ='small';const STEP=1/30, CAP=10, PH=150, POP_MAX=200;   // population cap (Houses +8, Keep/Fortress +10)
 const MAPSIZES={small:{f:1,label:'Small'},medium:{f:1.5,label:'Medium'},large:{f:2,label:'Large'}};
 
 let seed=1;
@@ -27,7 +27,7 @@ const UNITS={
  spearman:{name:'Spearman',hp:95,atk:8,range:0.7,cd:1.1,speed:1.6,sight:7,cost:{food:50,wood:25},time:13,pop:1,cls:'inf',val:75,desc:'Sturdy infantry. x3 damage vs knights.'},
  archer:{name:'Archer',hp:60,atk:7,range:5.5,cd:1.5,speed:1.6,sight:8,cost:{food:30,wood:40,gold:15},time:14,pop:1,cls:'rng',val:85,proj:'arrow',desc:'Ranged. Good vs infantry, weak vs knights.'},
  knight:{name:'Knight',hp:170,atk:13,range:0.8,cd:1.3,speed:2.7,sight:8,cost:{food:80,gold:75},time:20,pop:2,cls:'cav',val:155,desc:'Fast heavy cavalry. Crushes archers & siege.'},
- catapult:{name:'Catapult',hp:130,atk:34,range:8.5,minRange:2.2,cd:4.5,speed:0.9,sight:9,cost:{wood:150,stone:60,gold:60},time:28,pop:3,cls:'siege',val:270,proj:'stone',splash:1.1,desc:'Long-range siege. Devastating vs buildings.'},
+ catapult:{name:'Catapult',hp:130,atk:34,range:8.5,minRange:2.2,cd:4.5,speed:0.9,sight:12,cost:{wood:150,stone:60,gold:60},time:28,pop:3,cls:'siege',val:270,proj:'stone',splash:1.1,desc:'Long-range siege (range 8.5, sees 12 tiles). Devastating vs buildings.'},
 };
 const BONUS={peasant:{bld:0.3},spearman:{cav:3,bld:0.5},archer:{inf:1.25,cav:0.7,bld:0.15,siege:0.6},knight:{rng:1.6,siege:1.5,bld:0.5},catapult:{bld:3.5,inf:0.8,cav:0.6,rng:0.8,siege:1.5},tower:{cav:0.9,siege:0.8},fortb:{bld:0.25}};
 const ALLRES=['food','wood','stone','gold'];
@@ -158,12 +158,16 @@ let HI=new Int32Array(NN*8),HF=new Float32Array(NN*8);
 // connected regions per owner (flood fill, recomputed lazily after buildings/resources change): a goal in another
 // region (walled in, across water...) can't be reached, so the search gets a small budget for a best-effort approach
 // instead of exhausting the full expansion cap - those failed searches were the server's worst CPU spikes (~50 ms)
-let passGen=1;const regions={};
+let passGen=1,regionQ=null;const regions={},passGrids={};
+// per-owner passability grid (1 = walkable), rebuilt lazily when passGen changes; A* reads it instead of calling passable()
+function passGrid(owner){let R=passGrids[owner];if(R&&R.gen===passGen&&R.g.length===MAP*MAP)return R.g;const g=(R&&R.g.length===MAP*MAP)?R.g:new Uint8Array(MAP*MAP);
+ for(let y=0,i=0;y<MAP;y++)for(let x=0;x<MAP;x++,i++)g[i]=passable(x,y,owner)?1:0;passGrids[owner]={gen:passGen,g};return g;}
 function regionOf(owner){let R=regions[owner];if(R&&R.gen===passGen&&R.lab.length===MAP*MAP)return R.lab;
- const lab=(R&&R.lab.length===MAP*MAP)?R.lab:new Int32Array(MAP*MAP);lab.fill(0);let n=0;const q=new Int32Array(MAP*MAP);
- for(let i0=0;i0<MAP*MAP;i0++){if(lab[i0]||!passable(i0%MAP,(i0/MAP)|0,owner))continue;n++;let h=0,t=0;q[t++]=i0;lab[i0]=n;
-  while(h<t){const c=q[h++],cx=c%MAP,cy=(c/MAP)|0;for(let d=0;d<8;d++){const nx=cx+DX[d],ny=cy+DY[d];if(nx<0||ny<0||nx>=MAP||ny>=MAP)continue;const ni=ny*MAP+nx;if(lab[ni]||!passable(nx,ny,owner))continue;
-   if(d>=4&&(!passable(nx,cy,owner)||!passable(cx,ny,owner)))continue;lab[ni]=n;q[t++]=ni;}}}
+ const lab=(R&&R.lab.length===MAP*MAP)?R.lab:new Int32Array(MAP*MAP);lab.fill(0);let n=0;if(!regionQ||regionQ.length!==MAP*MAP)regionQ=new Int32Array(MAP*MAP);const q=regionQ;
+ const PG=passGrid(owner);
+ for(let i0=0;i0<MAP*MAP;i0++){if(lab[i0]||!PG[i0])continue;n++;let h=0,t=0;q[t++]=i0;lab[i0]=n;
+  while(h<t){const c=q[h++],cx=c%MAP,cy=(c/MAP)|0;for(let d=0;d<8;d++){const nx=cx+DX[d],ny=cy+DY[d];if(nx<0||ny<0||nx>=MAP||ny>=MAP)continue;const ni=ny*MAP+nx;if(lab[ni]||!PG[ni])continue;
+   if(d>=4&&(!PG[cy*MAP+nx]||!PG[ny*MAP+cx]))continue;lab[ni]=n;q[t++]=ni;}}}
  regions[owner]={gen:passGen,lab};return lab;}
 function findPath(sx,sy,gx,gy,owner){
  sx=clamp(sx|0,0,MAP-1);sy=clamp(sy|0,0,MAP-1);gx=clamp(gx|0,0,MAP-1);gy=clamp(gy|0,0,MAP-1);
@@ -174,22 +178,23 @@ function findPath(sx,sy,gx,gy,owner){
  const pop=()=>{const top=HI[0];hl--;if(hl>0){const li=HI[hl],lf=HF[hl];let k=0;for(;;){let c=2*k+1;if(c>=hl)break;if(c+1<hl&&HF[c+1]<HF[c])c++;if(HF[c]>=lf)break;HI[k]=HI[c];HF[k]=HF[c];k=c;}HI[k]=li;HF[k]=lf;}return top;};
  // weighted A* (w=1.35): near-optimal paths with far fewer expansions on the big maps
  const h=(x,y)=>{const dx=Math.abs(x-gx),dy=Math.abs(y-gy);return (dx+dy-0.5858*Math.min(dx,dy))*1.35;};
+ const PG=passGrid(owner),M1=MAP-1;
  const si=sy*MAP+sx,gi=gy*MAP+gx;gS[si]=0;stO[si]=stamp;from[si]=-1;push(si,h(sx,sy));
  let best=si,bestH=h(sx,sy),exp=0;
  while(hl>0&&hl<HI.length-16){const cur=pop();if(stC[cur]===stamp)continue;stC[cur]=stamp;
   if(cur===gi){best=cur;break;}
   const cx=cur%MAP,cy=(cur/MAP)|0;const hc=h(cx,cy);if(hc<bestH){bestH=hc;best=cur;}
   if(++exp>expCap)break;
-  for(let d=0;d<8;d++){const nx=cx+DX[d],ny=cy+DY[d];if(!passable(nx,ny,owner))continue;
-   if(d>=4&&(!passable(nx,cy,owner)||!passable(cx,ny,owner)))continue;
-   const ni=ny*MAP+nx;if(stC[ni]===stamp)continue;const ng=gS[cur]+(d>=4?1.4142:1);
+  for(let d=0;d<8;d++){const nx=cx+DX[d],ny=cy+DY[d];if(nx<0||ny<0||nx>M1||ny>M1)continue;const ni=ny*MAP+nx;if(!PG[ni])continue;
+   if(d>=4&&(!PG[cy*MAP+nx]||!PG[ny*MAP+cx]))continue;if(stC[ni]===stamp)continue;const ng=gS[cur]+(d>=4?1.4142:1);
    if(stO[ni]!==stamp||ng<gS[ni]){stO[ni]=stamp;gS[ni]=ng;from[ni]=cur;push(ni,ng+h(nx,ny));}}}
  const pts=[];let c=best,g=0;while(c!==-1&&c!==si&&g++<NN){pts.push([c%MAP+.5,((c/MAP)|0)+.5]);c=from[c];}
  pathExp-=exp;pts.reverse();return pts;}
 function lineClear(x0,y0,x1,y1,owner){const d=Math.hypot(x1-x0,y1-y0);if(d<0.01)return passable(Math.floor(x1),Math.floor(y1),owner);
- const n=Math.ceil(d/0.25);const px=-(y1-y0)/d*0.2,py=(x1-x0)/d*0.2;
+ const n=Math.ceil(d/0.25);const px=-(y1-y0)/d*0.2,py=(x1-x0)/d*0.2,PG=passGrid(owner);   // same result as passable(), from the cached grid
  for(let k=1;k<=n;k++){const t=k/n;const x=x0+(x1-x0)*t,y=y0+(y1-y0)*t;
-  if(!passable(Math.floor(x+px),Math.floor(y+py),owner)||!passable(Math.floor(x-px),Math.floor(y-py),owner))return false;}
+  const ax=Math.floor(x+px),ay=Math.floor(y+py),bx=Math.floor(x-px),by=Math.floor(y-py);
+  if(ax<0||ay<0||ax>=MAP||ay>=MAP||!PG[ay*MAP+ax]||bx<0||by<0||bx>=MAP||by>=MAP||!PG[by*MAP+bx])return false;}
  return true;}
 function smooth(sx,sy,pts,owner){if(pts.length<2)return pts;const out=[];let cx=sx,cy=sy,i=0;
  while(i<pts.length){let j=Math.min(pts.length-1,i+14);while(j>i&&!lineClear(cx,cy,pts[j][0],pts[j][1],owner))j--;out.push(pts[j]);cx=pts[j][0];cy=pts[j][1];i=j+1;}
@@ -197,8 +202,25 @@ function smooth(sx,sy,pts,owner){if(pts.length<2)return pts;const out=[];let cx=
 function goTo(u,x,y){u.repathT=time;u.goal={x,y};
  if(!(u.stuckN>=2)&&lineClear(u.x,u.y,x,y,u.owner)){u.path=[[x,y]];u.pend=null;return;}
  u.path=[];u.pend={x,y};}
+// long paths are shared: a unit starting within 8 tiles of a recent long path's start and heading within 4 tiles of its goal
+// (an army ordered across the map) reuses that raw A* path, joined at both ends by straight, clear lines. Entries die when
+// passability changes or after 8 s.
+const pathCache=new Map();let pathCacheGen=-1,pathHits=0;
+function sharedPath(u,tx,ty,x,y){if(pathCacheGen!==passGen){pathCache.clear();pathCacheGen=passGen;}
+ const E=pathCache.get(u.owner);if(!E)return null;let tries=0;
+ for(let n=E.length-1;n>=0&&tries<3;n--){const e=E[n];if(time-e.t>8)break;
+  if(Math.abs(e.gx-tx)>4||Math.abs(e.gy-ty)>4||Math.abs(e.sx-u.x)>8||Math.abs(e.sy-u.y)>8)continue;tries++;
+  const P=e.p,L=P.length;let i0=-1,i1=-1;
+  for(let i=Math.min(11,L-1);i>=0;i--)if(lineClear(u.x,u.y,P[i][0],P[i][1],u.owner)){i0=i;break;}if(i0<0)continue;
+  if(!e.full||(e.gx===tx&&e.gy===ty)){pathHits++;return P.slice(i0);}   // same goal tile, or a capped (partial) search: share it as is (a partial one is re-planned at its end)
+  for(let i=Math.max(i0,L-8);i<L;i++)if(lineClear(P[i][0],P[i][1],x,y,u.owner)){i1=i;break;}if(i1<0)continue;
+  pathHits++;const out=P.slice(i0,i1+1);out.push([tx+.5,ty+.5]);return out;}
+ return null;}
 function computePath(u){const {x,y}=u.pend;u.pend=null;const tx=Math.floor(x),ty=Math.floor(y);
- const p=findPath(Math.floor(u.x),Math.floor(u.y),tx,ty,u.owner);if(!p){u.path=[];return;}
+ const far=Math.abs(tx-u.x)+Math.abs(ty-u.y)>16,hit=far?sharedPath(u,tx,ty,x,y):null;
+ const p=hit||findPath(Math.floor(u.x),Math.floor(u.y),tx,ty,u.owner);if(!p){u.path=[];return;}
+ if(!hit&&far&&p.length>=12){const last=p[p.length-1];let E=pathCache.get(u.owner);if(!E)pathCache.set(u.owner,E=[]);
+  E.push({sx:u.x,sy:u.y,gx:tx,gy:ty,p,t:time,full:Math.floor(last[0])===tx&&Math.floor(last[1])===ty});if(E.length>24)E.shift();}
  const sp=u.stuckN>=2?p.slice():smooth(u.x,u.y,p,u.owner);
  if(passable(tx,ty,u.owner)){if(sp.length&&Math.floor(sp[sp.length-1][0])===tx&&Math.floor(sp[sp.length-1][1])===ty)sp[sp.length-1]=[x,y];else if(!sp.length)sp.push([x,y]);}
  u.path=sp;}
@@ -213,17 +235,30 @@ function moveAlong(u,dt){
  if(d<=step){u.x=p[0];u.y=p[1];u.path.shift();return !u.path.length;}
  u.x+=dx/d*step;u.y+=dy/d*step;u.moving=true;return false;}
 // ===== spatial hash =====
-const HC=4;let HN=Math.ceil(MAP/HC);let hash=[];
-function rebuildHash(){hash=new Array(HN*HN);for(const u of units){if(u.dead||u.inG)continue;const k=clamp(u.x/HC|0,0,HN-1)+clamp(u.y/HC|0,0,HN-1)*HN;(hash[k]||(hash[k]=[])).push(u);}}
+const HC=4;let HN=Math.ceil(MAP/HC);let hash=[],bhash=[],uMask=new Uint8Array(0),bMask=new Uint8Array(0);
+// spatial hash of units (and of buildings) per 4x4-tile cell, with a bitmask of the owners present in each cell: target scans
+// skip cells holding no enemy at all (with ~200 population per kingdom most scans happen inside one's own crowd)
+function rebuildHash(){const n=HN*HN;hash=new Array(n);bhash=new Array(n);if(uMask.length!==n){uMask=new Uint8Array(n);bMask=new Uint8Array(n);}else{uMask.fill(0);bMask.fill(0);}
+ for(const u of units){if(u.dead||u.inG)continue;const k=clamp(u.x/HC|0,0,HN-1)+clamp(u.y/HC|0,0,HN-1)*HN;(hash[k]||(hash[k]=[])).push(u);if(u.owner>=0)uMask[k]|=1<<u.owner;}
+ for(const b of blds){if(b.dead||b.owner<0)continue;const x0=clamp(b.tx/HC|0,0,HN-1),x1=clamp((b.tx+b.w-1)/HC|0,0,HN-1),y0=clamp(b.ty/HC|0,0,HN-1),y1=clamp((b.ty+b.h-1)/HC|0,0,HN-1);
+  for(let cy=y0;cy<=y1;cy++)for(let cx=x0;cx<=x1;cx++){const k=cx+cy*HN;(bhash[k]||(bhash[k]=[])).push(b);bMask[k]|=1<<b.owner;}}}
+function cellMask(M,x,y,r){const x0=clamp((x-r)/HC|0,0,HN-1),x1=clamp((x+r)/HC|0,0,HN-1),y0=clamp((y-r)/HC|0,0,HN-1),y1=clamp((y+r)/HC|0,0,HN-1);let m=0;
+ for(let cy=y0;cy<=y1;cy++)for(let cx=x0;cx<=x1;cx++)m|=M[cx+cy*HN];return m;}
+let bqStamp=0;
 function queryUnits(x,y,r,fn){const x0=clamp((x-r)/HC|0,0,HN-1),x1=clamp((x+r)/HC|0,0,HN-1),y0=clamp((y-r)/HC|0,0,HN-1),y1=clamp((y+r)/HC|0,0,HN-1);
  for(let cy=y0;cy<=y1;cy++)for(let cx=x0;cx<=x1;cx++){const a=hash[cx+cy*HN];if(a)for(const v of a)fn(v);}}
 function distTo(u,t){if(t.kind==='unit')return dist(u.x,u.y,t.x,t.y);const px=clamp(u.x,t.tx,t.tx+t.w),py=clamp(u.y,t.ty,t.ty+t.h);return dist(u.x,u.y,px,py);}
 function targetPoint(u,t){if(t.kind==='unit')return{x:t.x,y:t.y};return{x:clamp(u.x,t.tx-.45,t.tx+t.w+.45),y:clamp(u.y,t.ty-.45,t.ty+t.h+.45)};}
 function findEnemy(u,r,unitsOnly){
- let best=null,bd=1e9;const cat=u.type==='catapult';
+ let best=null,bd=1e9;const cat=u.type==='catapult';const foe=0xff&~(1<<u.owner);
+ if(uMask.length===HN*HN&&!(cellMask(uMask,u.x,u.y,r)&foe)){if(unitsOnly)return null;}else
  queryUnits(u.x,u.y,r,v=>{if(v.dead||!isEnemy(u.owner,v.owner))return;const d=dist(u.x,u.y,v.x,v.y);if(d>r)return;const s=d+(v.type==='peasant'?2:0)+(cat?3:0);if(s<bd){bd=s;best=v;}});
  if(unitsOnly)return best;
  if(best&&!cat)return best;
+ if(bMask.length===HN*HN){if(!(cellMask(bMask,u.x,u.y,r)&foe))return best;const st=++bqStamp;const x0=clamp((u.x-r)/HC|0,0,HN-1),x1=clamp((u.x+r)/HC|0,0,HN-1),y0=clamp((u.y-r)/HC|0,0,HN-1),y1=clamp((u.y+r)/HC|0,0,HN-1);
+  for(let cy=y0;cy<=y1;cy++)for(let cx=x0;cx<=x1;cx++){const a=bhash[cx+cy*HN];if(!a||!(bMask[cx+cy*HN]&foe))continue;for(const b of a){if(b.bq===st)continue;b.bq=st;
+   if(b.dead||!isEnemy(u.owner,b.owner))continue;const d=distTo(u,b);if(d>r)continue;const s=d+(BLD[b.type].wall?2.5:0);if(s<bd){bd=s;best=b;}}}
+  return best;}
  for(const b of blds){if(b.dead||!isEnemy(u.owner,b.owner))continue;if(Math.abs(b.x-u.x)>r+3||Math.abs(b.y-u.y)>r+3)continue;const d=distTo(u,b);if(d>r)continue;const s=d+(BLD[b.type].wall?2.5:0);if(s<bd){bd=s;best=b;}}
  return best;}
 function militaryValue(pid){let s=0;for(const u of units)if(u.owner===pid&&!u.dead&&u.type!=='peasant')s+=UNITS[u.type].val;return s;}
@@ -604,7 +639,7 @@ function aiThink(p){
  if(t%10<1&&p.res.food<60&&cnt.food<peas.length*.25){const f=findFarm(p.id,k.x,k.y);const g=peas.find(u=>u.state!=='build'&&u.job&&u.job.rt==='wood');if(f&&g)assignFarm(g,f);}
  // --- buildings
  let under=myB.filter(b=>!b.built&&!BLD[b.type].wall).length;const want=[];
- if(p.popCap<150&&p.pop>=p.popCap-4&&!myB.some(b=>b.type==='house'&&!b.built))want.push('house');
+ if(p.popCap<POP_MAX&&p.pop>=p.popCap-4&&!myB.some(b=>b.type==='house'&&!b.built))want.push('house');
  const farms=count('farm');if((A.needFarm||farms*2<Math.ceil(peas.length*P.gather.food))&&farms<14)want.push('farm');
  if(count('lumber')<1&&t>12)want.push('lumber');
  if(count('mine')<1&&t>70)want.push('mine');
@@ -747,11 +782,11 @@ function setupGame(gseed,slots,diff,fog,size){
 function makeAI(pid){const p=players[pid];if(!p||p.surrendered||p.isAI)return;p.isAI=true;p.isHuman=false;initAI(p);msg(`${p.pname||p.short} left — ${p.name} is now ruled by the AI.`,'#cdbb90');checkEnd();}
 function makeHuman(pid,name){const p=players[pid];if(!p||p.surrendered||!p.isAI)return false;p.isAI=false;p.isHuman=true;if(name)p.pname=name;msg(`${p.pname||p.short} reconnected and rules ${p.name} again.`,'#cdbb90');return true;}
 function sim(dt){
- time+=dt;if(gameOver&&!players.some(q=>q.isHuman&&!q.surrendered)&&time-gameOverT>3)return;pathBudget=12;pathExp=60000;pathEmerg=4;rebuildHash();
+ time+=dt;if(gameOver&&!players.some(q=>q.isHuman&&!q.surrendered)&&time-gameOverT>3)return;pathBudget=12;pathExp=24000;pathEmerg=2;rebuildHash();
  for(const p of players){p.pop=0;p.popCap=0;}
  for(const u of units)if(!u.dead)players[u.owner].pop+=UNITS[u.type].pop;
  for(const b of blds)if(!b.dead&&b.built&&BLD[b.type].pop)players[b.owner].popCap+=BLD[b.type].pop;
- for(const p of players)p.popCap=Math.min(150,p.popCap);
+ for(const p of players)p.popCap=Math.min(POP_MAX,p.popCap);
  for(const b of blds)if(!b.dead)updateBld(b,dt);
  for(const u of units)if(!u.dead&&!u.inG)updateUnit(u,dt);
  separation();updateProjs(dt);
@@ -769,11 +804,11 @@ function sim(dt){
 const UT=Object.keys(UNITS),BT=Object.keys(BLD),STN=['idle','move','attack','gather','return','farm','garrison','inside','build'];
 const r2=v=>Math.round(v*100)/100;
 function makeSnap(){
- const F=parts.splice(0).slice(-250).map(q=>[r2(q.x),r2(q.y),r2(q.z),r2(q.vx),r2(q.vy),r2(q.vz),r2(q.life),q.c,q.s,q.smoke?1:0]);
+ const F=parts.splice(0).slice(-120).map(q=>[r2(q.x),r2(q.y),r2(q.z),r2(q.vx),r2(q.vy),r2(q.vz),r2(q.life),q.c,q.s,q.smoke?1:0]);
  const D=decals.filter(d=>!d.sent).map(d=>{d.sent=true;return d.k==='rubble'?[0,d.x,d.y,d.w,d.h,r2(d.t)]:[1,r2(d.x),r2(d.y),d.c,r2(d.t)];});
  return{tm:r2(time),go:gameOver?1:0,
   P:players.map(p=>[Math.floor(p.res.food),Math.floor(p.res.wood),Math.floor(p.res.stone),Math.floor(p.res.gold),p.pop,p.popCap,p.surrendered?1:0,p.stats.trained,p.stats.killed,p.stats.lost,p.isHuman?1:0,p.bell?1:0]),
-  U:units.filter(u=>!u.dead&&!u.inG).map(u=>[u.id,UT.indexOf(u.type),u.owner,r2(u.x),r2(u.y),Math.ceil(u.hp),STN.indexOf(u.state),u.dir,(u.moving?1:0)|(u.working?2:0)|(u.amove?4:0),u.carry,u.carryT?RT[u.carryT]:0,u.swingT?r2(time-u.swingT):9,u.fireT?r2(time-u.fireT):9,r2(u.cd),u.job?(u.job.farm?4:RT[u.job.rt]):0]),
+  U:units.filter(u=>!u.dead&&!u.inG).map(u=>[u.id,UT.indexOf(u.type),u.owner,r2(u.x),r2(u.y),Math.ceil(u.hp),STN.indexOf(u.state),u.dir,(u.moving?1:0)|(u.working?2:0)|(u.amove?4:0),u.carry,u.carryT?RT[u.carryT]:0,u.swingT&&time-u.swingT<3?r2(u.swingT):0,u.fireT&&time-u.fireT<3?r2(u.fireT):0,u.type==='catapult'?Math.round(u.cd*10)/10:0,u.job?(u.job.farm?4:RT[u.job.rt]):0]),
   B:blds.filter(b=>!b.dead).map(b=>[b.id,BT.indexOf(b.type),b.owner,b.tx,b.ty,Math.ceil(b.hp),b.built?1:0,r2(b.prog),b.queue.map(q=>UT.indexOf(q)),r2(b.trainT),b.blocked?1:0,b.rally?[r2(b.rally.x),r2(b.rally.y)]:0,b.type==='farm'?(farmFree(b),b.workers.length):0,b.gar&&b.gar.length?[b.gar.length,garArchers(b),b.gar.filter(u=>u.type==='peasant').length]:0,b.bc||0,b.repT&&time-b.repT<.5?1:0]),
   J:projs.map(p=>[p.k==='arrow'?0:1,r2(p.sx),r2(p.sy),r2(p.tx),r2(p.ty),r2(p.life),r2(p.dur),p.sz||0]),
   R:resEvents.splice(0),F,D,K:pings.splice(0).map(p=>[r2(p.x),r2(p.y),r2(p.t),p.o]),M:msgs.splice(0).map(m=>[m.t,m.c,m.to]),S:sfxEv.splice(0)};}
@@ -1144,7 +1179,7 @@ function drawHelp(){uiBtns=[];tip=null;const [x,y]=overlayPanel(Math.min(W-40,90
  ['Delete','Del or Backspace kills your selected units (any type, no refund) and tears down your selected finished buildings or walls (also the Demolish button), with no refund. On an unfinished site it cancels instead (full refund). Shift+click selects several buildings; double-click selects every one of that type on screen. The Keep cannot be demolished.'],
  ['Gates','A Gate can be placed straight onto your own wall (green ghost): it replaces that wall segment (the wall\'s stone is not refunded). Gates can\'t go over enemy walls or other buildings.'],
  ['Garrison','Right-click your Keep (40), Fortress (30) or Tower (6) with peasants/spearmen/archers, or press G. Inside they are safe and shoot: every garrisoned unit adds 1 arrow per volley (archers 2). Keep: 4 arrows / 0.8 s, Fortress: 8 arrows / 0.8 s out to 11.5 tiles; with no enemy units in range it shoots enemy buildings (towers, keeps and fortresses first, then walls, gates and sites) for 25 damage/s. U unloads (to the rally point). Town Bell: B with the Keep selected (or Shift+B anywhere) calls peasants first, then infantry inside; ring again to release — peasants resume work. Units flee out if the building falls.'],
- ['Army','Keep trains peasants; Barracks: spearmen & archers; Stable: knights; Workshop: catapults. Q/E/R/T train from the selected building (when the build menu is closed). Right-click with a building selected sets its rally point. Houses raise population.'],
+ ['Army','Keep trains peasants; Barracks: spearmen & archers; Stable: knights; Workshop: catapults. Q/E/R/T train from the selected building (when the build menu is closed). Right-click with a building selected sets its rally point. Houses raise population (+8 each; Keep and Fortress +10) up to the cap of 200.'],
  ['Counters','Spearmen beat knights. Knights crush archers & catapults. Archers shred infantry. Catapults demolish walls and buildings. Towers, Keeps and Fortresses shoot arrows.'],
  ['Rivals','Ravenmoor is aggressive and attacks early. Eldmark builds a big economy and strikes late with large armies. Stonehold walls itself in with towers. Rivals also fight each other.'],
  ['Chat','Multiplayer only (lobby and matches): Enter opens the chat box, Enter sends to everyone, Esc cancels. While typing, game hotkeys are off. Mouse wheel over the open chat (or PgUp/PgDn) scrolls the history; recent messages fade after 10 s. There are no teams or alliances, so all chat goes to every player.'],
@@ -1544,10 +1579,16 @@ function queueSnap(m){NS.recv++;if(!flushTimer)flushTimer=setTimeout(()=>{flushT
  m.S=performance.now()-p.__rt<300?p.S.concat(m.S).slice(-60):m.S;m.__rt=p.__rt;pendSnap=m;}
 function flushSnap(){if(!pendSnap)return;const m=pendSnap;pendSnap=null;if(mode!=='net')return;const t=performance.now();lastApplyT=t;
  try{applySnap(m);}catch(e){netErr('snapshot',e);}NS.applyMs=NS.applyMs*.9+(performance.now()-t)*.1;NS.applied++;}
+// delta snapshots (v1.3.2): rebuild the full unit list from the acknowledged base snapshot + changed rows - removed ids
+const uHist=new Map();
+function undeltaSnap(m){let cur;
+ if(m.Ub!=null){const b=uHist.get(m.Ub);if(!b)return false;cur=new Map(b);for(const a of m.U)cur.set(a[0],a);for(const id of m.Ug||[])cur.delete(id);m.U=[...cur.values()];}
+ else{cur=new Map();for(const a of m.U)cur.set(a[0],a);}
+ const n=m.n|0;uHist.set(n,cur);for(const k of uHist.keys())if(k<(m.Ub!=null?m.Ub:n)||k<n-16)uHist.delete(k);return true;}
 function netConnect(){if(!/^https?:$/.test(location.protocol))return;try{ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');}catch(e){ws=null;return;}
- ws.onopen=()=>{netAvailable=true;wsFails=0;ws.__open=true;NS.lastMsgT=performance.now();if(NS.lostT)NS.awaitT=NS.lastMsgT;wsConn.send(JSON.stringify({t:'hello',name:myName(),token:myToken,acks:true}));};
+ ws.onopen=()=>{netAvailable=true;wsFails=0;ws.__open=true;NS.lastMsgT=performance.now();if(NS.lostT)NS.awaitT=NS.lastMsgT;wsConn.send(JSON.stringify({t:'hello',name:myName(),token:myToken,acks:true,delta:true}));};
  ws.onmessage=ev=>{const now=performance.now();NS.lastMsgT=now;NS.rxB+=ev.data.length;let m;try{m=JSON.parse(ev.data);}catch(e){return;}
-  if(m.t==='snap'){wsConn.send('{"t":"ack","n":'+(m.n|0)+'}');NS.seq=m.n|0;NS.srvSkipped=m.sk|0;if(NS.lastSnapT)NS.snapIv=NS.snapIv*.85+Math.min(1000,now-NS.lastSnapT)*.15;NS.lastSnapT=now;NS.rxN++;m.__rt=now;if(netKind==='server'&&mode==='net')queueSnap(m);return;}
+  if(m.t==='snap'){if(!undeltaSnap(m)){wsConn.send('{"t":"full"}');return;}wsConn.send('{"t":"ack","n":'+(m.n|0)+'}');NS.seq=m.n|0;NS.srvSkipped=m.sk|0;if(NS.lastSnapT)NS.snapIv=NS.snapIv*.85+Math.min(1000,now-NS.lastSnapT)*.15;NS.lastSnapT=now;NS.rxN++;m.__rt=now;if(netKind==='server'&&mode==='net')queueSnap(m);return;}
   if(m.t==='pong'){NS.rtt=Math.round(now-m.c);return;}
   if(m.t==='chat'||m.t==='chathist'){try{onChat(m);}catch(e){netErr('chat',e);}return;}
   if(m.t==='version'){onSrvVersion(m);return;}if(m.t==='welcome')srvCid=m.cid;if(m.t==='lobby')srvLobby=m;
@@ -1571,7 +1612,7 @@ function onSrvVersion(m){srvVer=m.version;srvUpd=m;if(srvVerFirst==null){srvVerF
 function handleNet(m){
  if(m.t==='welcome'){myCid=m.cid;}
  else if(m.t==='lobby'){lobby=m;}
- else if(m.t==='init')startNetGame(m);
+ else if(m.t==='init'){uHist.clear();startNetGame(m);}
  else if(m.t==='tolobby'){if(mode==='net'){mode='local';state='lobby';previewMap();}}
  else if(m.t==='err'){msg(m.msg,'#ff9a8a',me);}}
 function startNetGame(m){const resync=mode==='net'&&NS.lostT>0&&players[m.you]&&me===m.you;const keepCam=resync?{x:cam.x,y:cam.y,z:cam.z}:null;
@@ -1586,14 +1627,14 @@ function applySnap(s){const now=performance.now();SNAP_DT=clamp(NS.snapIv/1000,1
  for(const a of s.U){const id=a[0];let u=cmap.get(id);const type=UT[a[1]];
   if(!u){u={id,kind:'unit',type,owner:a[2],x:a[3],y:a[4],nx:a[3],ny:a[4],ox:a[3],oy:a[4],hp:a[5],maxhp:UNITS[type].hp,anim:Math.random()*10,path:null,lastHit:-99,dir:1};cmap.set(id,u);units.push(u);}
   u.ox=u.x;u.oy=u.y;u.nx=a[3];u.ny=a[4];if(a[5]<u.hp)u.lastHit=time;u.hp=a[5];u.state=STN[a[6]];u.dir=a[7];const f=a[8];u.moving=!!(f&1);u.working=!!(f&2);u.amove=(f&4)?{}:null;
-  u.carry=a[9];u.carryT=RTN[a[10]];u.swingT=time-a[11];u.fireT=time-a[12];u.cd=a[13];u.job=a[14]?(a[14]===4?{farm:true}:{rt:RTN[a[14]]}):null;seen.add(id);}
+  u.carry=a[9];u.carryT=RTN[a[10]];u.swingT=a[11]?a[11]:time-9;u.fireT=a[12]?a[12]:time-9;u.cd=a[13];u.job=a[14]?(a[14]===4?{farm:true}:{rt:RTN[a[14]]}):null;seen.add(id);}
  for(const a of s.B){const id=a[0];let b=cmap.get(id);const type=BT[a[1]];
   if(!b){const D=BLD[type];b={id,kind:'bld',type,owner:a[2],tx:a[3],ty:a[4],w:D.w,h:D.h,x:a[3]+D.w/2,y:a[4]+D.h/2,maxhp:D.hp,hp:a[5],workers:[],lastHit:-99};cmap.set(id,b);blds.push(b);mmDirty=true;}
   if(a[5]<b.hp)b.lastHit=time;b.hp=a[5];if(b.built!==!!a[6])mmDirty=true;b.built=!!a[6];b.prog=a[7];b.queue=a[8].map(q=>UT[q]);b.trainT=a[9];b.blocked=!!a[10];b.rally=a[11]?{x:a[11][0],y:a[11][1]}:null;b.wk=a[12];b.garN=a[13]?a[13][0]:0;b.garA=a[13]?a[13][1]:0;b.garP=a[13]?a[13][2]:0;b.bc=a[14]||0;b.repT=a[15]?time:-9;seen.add(id);
   if(type==='keep')players[b.owner].keep=b;}
  units=units.filter(u=>{if(seen.has(u.id))return true;u.dead=true;cmap.delete(u.id);return false;});
  blds=blds.filter(b=>{if(seen.has(b.id))return true;b.dead=true;cmap.delete(b.id);mmDirty=true;return false;});
- bgrid.fill(null);for(const b of blds)for(let y=b.ty;y<b.ty+b.h;y++)for(let x=b.tx;x<b.tx+b.w;x++)bgrid[y*MAP+x]=b;
+ bgrid.fill(null);for(const b of blds)for(let y=b.ty;y<b.ty+b.h;y++)for(let x=b.tx;x<b.tx+b.w;x++)bgrid[y*MAP+x]=b;passGen++;
  projs=s.J.map(a=>({k:a[0]?'stone':'arrow',sx:a[1],sy:a[2],tx:a[3],ty:a[4],life:a[5],dur:a[6],sz:a[7]||undefined}));
  for(const i of s.R){resT[i]=0;mmDirty=true;}
  for(const a of s.F)parts.push({x:a[0],y:a[1],z:a[2],vx:a[3],vy:a[4],vz:a[5],life:a[6],max:Math.max(a[6],.3),c:a[7],s:a[8],smoke:!!a[9]});

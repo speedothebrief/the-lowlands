@@ -150,10 +150,16 @@ function queueSnap(m){NS.recv++;if(!flushTimer)flushTimer=setTimeout(()=>{flushT
  m.S=performance.now()-p.__rt<300?p.S.concat(m.S).slice(-60):m.S;m.__rt=p.__rt;pendSnap=m;}
 function flushSnap(){if(!pendSnap)return;const m=pendSnap;pendSnap=null;if(mode!=='net')return;const t=performance.now();lastApplyT=t;
  try{applySnap(m);}catch(e){netErr('snapshot',e);}NS.applyMs=NS.applyMs*.9+(performance.now()-t)*.1;NS.applied++;}
+// delta snapshots (v1.3.2): rebuild the full unit list from the acknowledged base snapshot + changed rows - removed ids
+const uHist=new Map();
+function undeltaSnap(m){let cur;
+ if(m.Ub!=null){const b=uHist.get(m.Ub);if(!b)return false;cur=new Map(b);for(const a of m.U)cur.set(a[0],a);for(const id of m.Ug||[])cur.delete(id);m.U=[...cur.values()];}
+ else{cur=new Map();for(const a of m.U)cur.set(a[0],a);}
+ const n=m.n|0;uHist.set(n,cur);for(const k of uHist.keys())if(k<(m.Ub!=null?m.Ub:n)||k<n-16)uHist.delete(k);return true;}
 function netConnect(){if(!/^https?:$/.test(location.protocol))return;try{ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');}catch(e){ws=null;return;}
- ws.onopen=()=>{netAvailable=true;wsFails=0;ws.__open=true;NS.lastMsgT=performance.now();if(NS.lostT)NS.awaitT=NS.lastMsgT;wsConn.send(JSON.stringify({t:'hello',name:myName(),token:myToken,acks:true}));};
+ ws.onopen=()=>{netAvailable=true;wsFails=0;ws.__open=true;NS.lastMsgT=performance.now();if(NS.lostT)NS.awaitT=NS.lastMsgT;wsConn.send(JSON.stringify({t:'hello',name:myName(),token:myToken,acks:true,delta:true}));};
  ws.onmessage=ev=>{const now=performance.now();NS.lastMsgT=now;NS.rxB+=ev.data.length;let m;try{m=JSON.parse(ev.data);}catch(e){return;}
-  if(m.t==='snap'){wsConn.send('{"t":"ack","n":'+(m.n|0)+'}');NS.seq=m.n|0;NS.srvSkipped=m.sk|0;if(NS.lastSnapT)NS.snapIv=NS.snapIv*.85+Math.min(1000,now-NS.lastSnapT)*.15;NS.lastSnapT=now;NS.rxN++;m.__rt=now;if(netKind==='server'&&mode==='net')queueSnap(m);return;}
+  if(m.t==='snap'){if(!undeltaSnap(m)){wsConn.send('{"t":"full"}');return;}wsConn.send('{"t":"ack","n":'+(m.n|0)+'}');NS.seq=m.n|0;NS.srvSkipped=m.sk|0;if(NS.lastSnapT)NS.snapIv=NS.snapIv*.85+Math.min(1000,now-NS.lastSnapT)*.15;NS.lastSnapT=now;NS.rxN++;m.__rt=now;if(netKind==='server'&&mode==='net')queueSnap(m);return;}
   if(m.t==='pong'){NS.rtt=Math.round(now-m.c);return;}
   if(m.t==='chat'||m.t==='chathist'){try{onChat(m);}catch(e){netErr('chat',e);}return;}
   if(m.t==='version'){onSrvVersion(m);return;}if(m.t==='welcome')srvCid=m.cid;if(m.t==='lobby')srvLobby=m;
@@ -177,7 +183,7 @@ function onSrvVersion(m){srvVer=m.version;srvUpd=m;if(srvVerFirst==null){srvVerF
 function handleNet(m){
  if(m.t==='welcome'){myCid=m.cid;}
  else if(m.t==='lobby'){lobby=m;}
- else if(m.t==='init')startNetGame(m);
+ else if(m.t==='init'){uHist.clear();startNetGame(m);}
  else if(m.t==='tolobby'){if(mode==='net'){mode='local';state='lobby';previewMap();}}
  else if(m.t==='err'){msg(m.msg,'#ff9a8a',me);}}
 function startNetGame(m){const resync=mode==='net'&&NS.lostT>0&&players[m.you]&&me===m.you;const keepCam=resync?{x:cam.x,y:cam.y,z:cam.z}:null;
@@ -192,14 +198,14 @@ function applySnap(s){const now=performance.now();SNAP_DT=clamp(NS.snapIv/1000,1
  for(const a of s.U){const id=a[0];let u=cmap.get(id);const type=UT[a[1]];
   if(!u){u={id,kind:'unit',type,owner:a[2],x:a[3],y:a[4],nx:a[3],ny:a[4],ox:a[3],oy:a[4],hp:a[5],maxhp:UNITS[type].hp,anim:Math.random()*10,path:null,lastHit:-99,dir:1};cmap.set(id,u);units.push(u);}
   u.ox=u.x;u.oy=u.y;u.nx=a[3];u.ny=a[4];if(a[5]<u.hp)u.lastHit=time;u.hp=a[5];u.state=STN[a[6]];u.dir=a[7];const f=a[8];u.moving=!!(f&1);u.working=!!(f&2);u.amove=(f&4)?{}:null;
-  u.carry=a[9];u.carryT=RTN[a[10]];u.swingT=time-a[11];u.fireT=time-a[12];u.cd=a[13];u.job=a[14]?(a[14]===4?{farm:true}:{rt:RTN[a[14]]}):null;seen.add(id);}
+  u.carry=a[9];u.carryT=RTN[a[10]];u.swingT=a[11]?a[11]:time-9;u.fireT=a[12]?a[12]:time-9;u.cd=a[13];u.job=a[14]?(a[14]===4?{farm:true}:{rt:RTN[a[14]]}):null;seen.add(id);}
  for(const a of s.B){const id=a[0];let b=cmap.get(id);const type=BT[a[1]];
   if(!b){const D=BLD[type];b={id,kind:'bld',type,owner:a[2],tx:a[3],ty:a[4],w:D.w,h:D.h,x:a[3]+D.w/2,y:a[4]+D.h/2,maxhp:D.hp,hp:a[5],workers:[],lastHit:-99};cmap.set(id,b);blds.push(b);mmDirty=true;}
   if(a[5]<b.hp)b.lastHit=time;b.hp=a[5];if(b.built!==!!a[6])mmDirty=true;b.built=!!a[6];b.prog=a[7];b.queue=a[8].map(q=>UT[q]);b.trainT=a[9];b.blocked=!!a[10];b.rally=a[11]?{x:a[11][0],y:a[11][1]}:null;b.wk=a[12];b.garN=a[13]?a[13][0]:0;b.garA=a[13]?a[13][1]:0;b.garP=a[13]?a[13][2]:0;b.bc=a[14]||0;b.repT=a[15]?time:-9;seen.add(id);
   if(type==='keep')players[b.owner].keep=b;}
  units=units.filter(u=>{if(seen.has(u.id))return true;u.dead=true;cmap.delete(u.id);return false;});
  blds=blds.filter(b=>{if(seen.has(b.id))return true;b.dead=true;cmap.delete(b.id);mmDirty=true;return false;});
- bgrid.fill(null);for(const b of blds)for(let y=b.ty;y<b.ty+b.h;y++)for(let x=b.tx;x<b.tx+b.w;x++)bgrid[y*MAP+x]=b;
+ bgrid.fill(null);for(const b of blds)for(let y=b.ty;y<b.ty+b.h;y++)for(let x=b.tx;x<b.tx+b.w;x++)bgrid[y*MAP+x]=b;passGen++;
  projs=s.J.map(a=>({k:a[0]?'stone':'arrow',sx:a[1],sy:a[2],tx:a[3],ty:a[4],life:a[5],dur:a[6],sz:a[7]||undefined}));
  for(const i of s.R){resT[i]=0;mmDirty=true;}
  for(const a of s.F)parts.push({x:a[0],y:a[1],z:a[2],vx:a[3],vy:a[4],vz:a[5],life:a[6],max:Math.max(a[6],.3),c:a[7],s:a[8],smoke:!!a[9]});

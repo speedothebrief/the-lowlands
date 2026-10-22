@@ -1,15 +1,28 @@
 // ===== spatial hash =====
-const HC=4;let HN=Math.ceil(MAP/HC);let hash=[];
-function rebuildHash(){hash=new Array(HN*HN);for(const u of units){if(u.dead||u.inG)continue;const k=clamp(u.x/HC|0,0,HN-1)+clamp(u.y/HC|0,0,HN-1)*HN;(hash[k]||(hash[k]=[])).push(u);}}
+const HC=4;let HN=Math.ceil(MAP/HC);let hash=[],bhash=[],uMask=new Uint8Array(0),bMask=new Uint8Array(0);
+// spatial hash of units (and of buildings) per 4x4-tile cell, with a bitmask of the owners present in each cell: target scans
+// skip cells holding no enemy at all (with ~200 population per kingdom most scans happen inside one's own crowd)
+function rebuildHash(){const n=HN*HN;hash=new Array(n);bhash=new Array(n);if(uMask.length!==n){uMask=new Uint8Array(n);bMask=new Uint8Array(n);}else{uMask.fill(0);bMask.fill(0);}
+ for(const u of units){if(u.dead||u.inG)continue;const k=clamp(u.x/HC|0,0,HN-1)+clamp(u.y/HC|0,0,HN-1)*HN;(hash[k]||(hash[k]=[])).push(u);if(u.owner>=0)uMask[k]|=1<<u.owner;}
+ for(const b of blds){if(b.dead||b.owner<0)continue;const x0=clamp(b.tx/HC|0,0,HN-1),x1=clamp((b.tx+b.w-1)/HC|0,0,HN-1),y0=clamp(b.ty/HC|0,0,HN-1),y1=clamp((b.ty+b.h-1)/HC|0,0,HN-1);
+  for(let cy=y0;cy<=y1;cy++)for(let cx=x0;cx<=x1;cx++){const k=cx+cy*HN;(bhash[k]||(bhash[k]=[])).push(b);bMask[k]|=1<<b.owner;}}}
+function cellMask(M,x,y,r){const x0=clamp((x-r)/HC|0,0,HN-1),x1=clamp((x+r)/HC|0,0,HN-1),y0=clamp((y-r)/HC|0,0,HN-1),y1=clamp((y+r)/HC|0,0,HN-1);let m=0;
+ for(let cy=y0;cy<=y1;cy++)for(let cx=x0;cx<=x1;cx++)m|=M[cx+cy*HN];return m;}
+let bqStamp=0;
 function queryUnits(x,y,r,fn){const x0=clamp((x-r)/HC|0,0,HN-1),x1=clamp((x+r)/HC|0,0,HN-1),y0=clamp((y-r)/HC|0,0,HN-1),y1=clamp((y+r)/HC|0,0,HN-1);
  for(let cy=y0;cy<=y1;cy++)for(let cx=x0;cx<=x1;cx++){const a=hash[cx+cy*HN];if(a)for(const v of a)fn(v);}}
 function distTo(u,t){if(t.kind==='unit')return dist(u.x,u.y,t.x,t.y);const px=clamp(u.x,t.tx,t.tx+t.w),py=clamp(u.y,t.ty,t.ty+t.h);return dist(u.x,u.y,px,py);}
 function targetPoint(u,t){if(t.kind==='unit')return{x:t.x,y:t.y};return{x:clamp(u.x,t.tx-.45,t.tx+t.w+.45),y:clamp(u.y,t.ty-.45,t.ty+t.h+.45)};}
 function findEnemy(u,r,unitsOnly){
- let best=null,bd=1e9;const cat=u.type==='catapult';
+ let best=null,bd=1e9;const cat=u.type==='catapult';const foe=0xff&~(1<<u.owner);
+ if(uMask.length===HN*HN&&!(cellMask(uMask,u.x,u.y,r)&foe)){if(unitsOnly)return null;}else
  queryUnits(u.x,u.y,r,v=>{if(v.dead||!isEnemy(u.owner,v.owner))return;const d=dist(u.x,u.y,v.x,v.y);if(d>r)return;const s=d+(v.type==='peasant'?2:0)+(cat?3:0);if(s<bd){bd=s;best=v;}});
  if(unitsOnly)return best;
  if(best&&!cat)return best;
+ if(bMask.length===HN*HN){if(!(cellMask(bMask,u.x,u.y,r)&foe))return best;const st=++bqStamp;const x0=clamp((u.x-r)/HC|0,0,HN-1),x1=clamp((u.x+r)/HC|0,0,HN-1),y0=clamp((u.y-r)/HC|0,0,HN-1),y1=clamp((u.y+r)/HC|0,0,HN-1);
+  for(let cy=y0;cy<=y1;cy++)for(let cx=x0;cx<=x1;cx++){const a=bhash[cx+cy*HN];if(!a||!(bMask[cx+cy*HN]&foe))continue;for(const b of a){if(b.bq===st)continue;b.bq=st;
+   if(b.dead||!isEnemy(u.owner,b.owner))continue;const d=distTo(u,b);if(d>r)continue;const s=d+(BLD[b.type].wall?2.5:0);if(s<bd){bd=s;best=b;}}}
+  return best;}
  for(const b of blds){if(b.dead||!isEnemy(u.owner,b.owner))continue;if(Math.abs(b.x-u.x)>r+3||Math.abs(b.y-u.y)>r+3)continue;const d=distTo(u,b);if(d>r)continue;const s=d+(BLD[b.type].wall?2.5:0);if(s<bd){bd=s;best=b;}}
  return best;}
 function militaryValue(pid){let s=0;for(const u of units)if(u.owner===pid&&!u.dead&&u.type!=='peasant')s+=UNITS[u.type].val;return s;}
