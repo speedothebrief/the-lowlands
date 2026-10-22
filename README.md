@@ -130,6 +130,23 @@ The Lowlands LAN server running.
 
 If other PCs can't connect, allow the port (default 8080) through the host's firewall.
 
+### Chat
+Everyone connected to the same server can chat, both in the lobby and during a match.
+- **Enter** opens the chat box, **Enter** sends (Shift+Enter also sends), **Esc** cancels and keeps nothing.
+  While the box is open, every game hotkey is off, so you can type B, H, M, P or Del freely.
+- There are no teams or alliances, so every message goes to everyone in the game, spectators included.
+  `/t` only shows a local note that team chat doesn't exist.
+- Each line shows the sender's name in their kingdom color, plus the time.
+  In a match the last 6 messages sit above the bottom panel and fade after about 10 s. They never block map clicks.
+  While the box is open, the full history is shown; scroll it with the mouse wheel or PgUp/PgDn.
+- System lines announce players joining, leaving, disconnecting and reconnecting, host changes,
+  game start and end, and defeated kingdoms.
+- A soft two-tone chime plays for other players' messages. It follows the SFX volume and mute.
+- The server trims each message, removes control and invisible characters, cuts it to 200 characters,
+  and shows it as plain text only. It allows each player 5 messages per 5 s, relays only within its own room,
+  and keeps the last 50 messages so a player who joins (or reconnects) sees the recent history.
+- Solo games have no chat: Enter does nothing there.
+
 ### Lag, freezes and dropped connections
 Since v1.2.2 a slow or briefly stalled connection (weak Wi-Fi, a busy laptop) can no longer freeze one player's game:
 - **Only fresh updates are sent.** Each page confirms every world update it receives. If one player's connection falls
@@ -353,6 +370,20 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
   otherwise back to their previous job. Right-click a site with peasants to help.
   **Del**, or the *Cancel construction* button, removes a site with a full refund.
   A site destroyed before it is finished refunds 50%.
+- **Demolish.** Select one or more of your finished buildings or walls, then press **Del** / **Backspace**
+  or click *Demolish*. They are torn down with no refund.
+  To select several, Shift+click them, or double-click one to select all of that type on screen.
+  On an unfinished site, the same key cancels it with a full refund. The Keep can't be demolished:
+  it is your only one, and losing it means defeat. In multiplayer the server checks that you own every building.
+- **Gates over walls.** A Gate can be placed directly onto your own wall tiles; the ghost turns green.
+  The wall segment is replaced by a Gate site. A finished wall's stone isn't refunded; an unfinished wall
+  site gets its normal full refund. Walls never hold units, so nobody gets trapped. Gates still can't go
+  on enemy walls or other buildings.
+- **Market trading (gold only).** Select a finished Market to open its trade panel. The rates are fixed:
+  **sell** 4 food, wood or stone for 1 gold (100 → 25 gold), or **buy** 1 food, wood or stone for 4 gold (100 for 400 gold).
+  Shift+click trades ×10 (1000 wood → 250 gold, or 1000 wood for 4000 gold).
+  You can't trade one resource for another, and greyed-out buttons mean you can't afford that trade.
+  Each Market still earns +0.5 gold/s. Trades are validated by the simulation (server-authoritative in multiplayer).
 - **Repair.** Right-click a damaged building of yours with peasants selected. Or select the building
   and press **N** (or click *Repair*): up to 3 of the nearest idle peasants go to work.
   Repair costs wood/stone in proportion to the HP restored; a full 0→100% repair costs 50% of the
@@ -397,6 +428,10 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
 | Build menu | `B`, then a letter: `H` House · `F` Farm · `L` Lumber Camp · `Q` Quarry · `G` Gold Mine · `M` Market · `B` Barracks · `S` Stable · `W` Siege Workshop · `A` Wall · `E` Gate · `T` Tower · `O` Fortress. You can also click a BUILD button (each shows its letter and has a tooltip) |
 | Place | Left-click the map (walls: click-drag a line). Shift+click, or choosing with Shift+letter (e.g. `B`, `Shift+H`), keeps placing several. Right-click / Esc cancels. Selected peasants build it |
 | Cancel site | Select a construction site → `Del` / *Cancel construction* (full refund) |
+| Demolish | Select finished buildings/walls of yours (Shift+click or double-click for several) → `Del` / `Backspace` / *Demolish* (no refund; not the Keep) |
+| Gate in a wall | Build a Gate (`B`, `E`) on top of your own wall tile; it replaces that segment |
+| Market trade | Select a finished Market: *Sell 100 …* (→ 25 gold) / *Buy 100 …* (400 gold); Shift+click = ×10 |
+| Chat (LAN) | `Enter` open / send, `Esc` cancel, wheel or PgUp/PgDn scrolls the history; hotkeys are off while typing |
 | Repair | Right-click a damaged building with peasants, or select it and press `N` |
 | Garrison | Right-click your Keep/Fortress/Tower with peasants/infantry, or `G` (nearest with room). `U` unloads the selected building |
 | Town Bell | `B` with the Keep selected, `Shift+B` anywhere, or the 🔔 button; press again for the all-clear |
@@ -425,9 +460,11 @@ first click or key press (browser autoplay policy). Volumes and mute are saved i
 
 ## Tests
 ```bash
-npm test                     # two simulated WebSocket clients: lobby, start, command sync, ownership checks, disconnect → AI
+npm test                     # two simulated WebSocket clients: lobby, start, command sync, ownership checks, disconnect → AI,
+                             # chat relay / sanitizing / rate limit / room isolation / history, server-validated trade + demolish
 node test/rules-test.js      # gather claim slots, Keep/Fortress fire rates + range, garrison arrows + merging, peasant construction/repair/refunds, free placement,
-                             # builder auto-start, stuck watchdog + no-stuck soak, garrisons + Town Bell (+ AI bell), doubled resource nodes, map sizes
+                             # builder auto-start, stuck watchdog + no-stuck soak, garrisons + Town Bell (+ AI bell), doubled resource nodes, map sizes,
+                             # market trading, demolish, gates over own walls
 node test/sim-test.js [ai] [small|medium|large] [minutes]   # headless soak: AI economy, building, waves, surrender, tick cost
 node test/net-soak-test.js   # 3-player server soak, 2 min (SOAK_SEC=120 SPEED=5 LINK_KBS=40): server at 5× load ≈ a Celeron J3455,
                              # tick budget, 15 updates/s, compressed size, slow + stalling link stays current, reconnect + resync,
@@ -436,7 +473,7 @@ npm i --no-save puppeteer-core            # once, for the two browser tests (nee
 CHROME=/usr/bin/google-chrome node test/audio-test.js   # headless Chrome: audio gating, BattleTimer unit test, SFX, sliders, LAN battle music
 CHROME=/usr/bin/google-chrome node test/ui-test.js      # headless Chrome: build hotkeys, context keys, garrison/bell/repair UI,
                                                         # map-size menu, LAN lobby map size, LAN building + bell, zoomed-out redraw,
-                                                        # busy-page catch-up, F3 overlay, lag banner, reconnect
+                                                        # busy-page catch-up, F3 overlay, lag banner, reconnect, chat (Enter/typing/Esc)
 node test/updater-test.js            # self-updater against a local fake GitHub release server (builds an old + a new app):
                                      # offline/hanging/rate-limited checks, LOWLANDS_NO_UPDATE, size + SHA-256, no restart mid-game,
                                      # swap + restart on the same port, browser tab reload, start.sh restart loop

@@ -43,7 +43,7 @@ function killEnt(e,by){
   if(!e.built&&!e.cancelled){const c=BLD[e.type].cost,P=players[e.owner];for(const r in c)P.res[r]+=Math.floor(c[r]*.5);}
   mmDirty=true;
   if(e.type==='keep')surrender(players[e.owner],by,'keep');
-  else if(players[e.owner].isHuman)msg(`Your ${BLD[e.type].name} was destroyed.`,'#ff8a6a',e.owner);
+  else if(players[e.owner].isHuman&&!e.cancelled&&!e.demolished)msg(`Your ${BLD[e.type].name} was destroyed.`,'#ff8a6a',e.owner);
  }}
 function attack(u,t){const D=UNITS[u.type];const d=distTo(u,t);
  if(D.proj==='arrow'){sfx('bow',u.x,u.y,u.owner);}if(D.proj==='arrow')projs.push({k:'arrow',sx:u.x,sy:u.y,t,tx:t.x,ty:t.y,life:0,dur:Math.max(.15,d/13),dmg:D.atk,owner:u.owner,atype:u.type,att:u});
@@ -182,12 +182,19 @@ function spawnFrom(b,ut){const rp=b.rally||{x:b.x+1,y:b.y+3};const n=nearestFree
  else if(ut==='peasant'&&players[b.owner].isHuman){const f=findFarm(b.owner,u.x,u.y);if(f)assignFarm(u,f);}
  u.guard={x:u.x,y:u.y};return u;}
 function canPlace(type,tx,ty,owner,ai){const D=BLD[type];
- for(let y=ty;y<ty+D.h;y++)for(let x=tx;x<tx+D.w;x++){if(!inb(x,y))return 'Out of bounds';const i=y*MAP+x;if(tiles[i])return 'Blocked by water';if(resT[i])return 'Blocked by resources';if(bgrid[i])return 'Blocked by building';if(fogOn&&visMap[owner]&&visMap[owner][i]===0)return 'Unexplored';
+ for(let y=ty;y<ty+D.h;y++)for(let x=tx;x<tx+D.w;x++){if(!inb(x,y))return 'Out of bounds';const i=y*MAP+x;if(tiles[i])return 'Blocked by water';if(resT[i])return 'Blocked by resources';if(bgrid[i]&&!(D.gate&&ownWall(bgrid[i],owner)))return 'Blocked by building';if(fogOn&&visMap[owner]&&visMap[owner][i]===0)return 'Unexplored';
   if(ai&&ai.ringSet&&!D.wall&&ai.ringSet.has(i))return 'reserved';}
  if(ai&&!D.wall){for(let y=ty-1;y<=ty+D.h;y++)for(let x=tx-1;x<=tx+D.w;x++){if(!inb(x,y))return 'edge';const b=bgrid[y*MAP+x];if(b&&!BLD[b.type].wall)return 'crowded';}}
  for(const u of units){if(u.dead||u.owner===owner)continue;if(u.x>=tx-.3&&u.x<=tx+D.w+.3&&u.y>=ty-.3&&u.y<=ty+D.h+.3)return 'Enemy units in the way';}
  return null;}
-function placeBuilding(type,tx,ty,owner){const p=players[owner];const c=BLD[type].cost;if(!afford(p,c))return null;if(canPlace(type,tx,ty,owner,p.isAI?p.ai:null))return null;pay(p,c);sfx('place',tx+BLD[type].w/2,ty+BLD[type].h/2,owner,BLD[type].wall?1:0);return spawnBld(type,tx,ty,owner,false);}
+// a Gate may be placed over the owner's own Wall tiles (built or not): the wall segment is replaced (no refund for a finished wall,
+// the usual full refund for an unfinished wall site). Enemy walls / other buildings still block. Walls never hold units, so nobody is trapped.
+const ownWall=(b,owner)=>b&&!b.dead&&b.type==='wall'&&b.owner===owner;
+function replaceWall(b){const p=players[b.owner];if(!b.built){refund(p,BLD.wall.cost);b.cancelled=true;}
+ b.dead=true;for(let y=b.ty;y<b.ty+b.h;y++)for(let x=b.tx;x<b.tx+b.w;x++)if(bgrid[y*MAP+x]===b)bgrid[y*MAP+x]=null;passGen++;mmDirty=true;
+ for(const u of units)if(!u.dead&&u.bld===b){u.bld=null;if(u.state==='build')u.state='idle';}}
+function placeBuilding(type,tx,ty,owner){const p=players[owner];const c=BLD[type].cost;if(!afford(p,c))return null;if(canPlace(type,tx,ty,owner,p.isAI?p.ai:null))return null;pay(p,c);
+ if(BLD[type].gate)for(let y=ty;y<ty+BLD[type].h;y++)for(let x=tx;x<tx+BLD[type].w;x++){const ob=bgrid[y*MAP+x];if(ownWall(ob,owner))replaceWall(ob);}sfx('place',tx+BLD[type].w/2,ty+BLD[type].h/2,owner,BLD[type].wall?1:0);return spawnBld(type,tx,ty,owner,false);}
 
 // ===== surrender & end =====
 function surrender(p,by,why){if(p.surrendered)return;p.surrendered=true;p.surT=time;const bp=players[by];

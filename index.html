@@ -4,7 +4,7 @@
 <style>html,body{margin:0;height:100%;overflow:hidden;background:#0b0d10}canvas{display:block;cursor:default}</style></head>
 <body><canvas id="c"></canvas>
 <script>
-const APP_VERSION='1.2.2';
+const APP_VERSION='1.3.0';
 /*SIM-BEGIN*/
 'use strict';
 // ===== The Lowlands — single-file RTS =====
@@ -255,7 +255,7 @@ function killEnt(e,by){
   if(!e.built&&!e.cancelled){const c=BLD[e.type].cost,P=players[e.owner];for(const r in c)P.res[r]+=Math.floor(c[r]*.5);}
   mmDirty=true;
   if(e.type==='keep')surrender(players[e.owner],by,'keep');
-  else if(players[e.owner].isHuman)msg(`Your ${BLD[e.type].name} was destroyed.`,'#ff8a6a',e.owner);
+  else if(players[e.owner].isHuman&&!e.cancelled&&!e.demolished)msg(`Your ${BLD[e.type].name} was destroyed.`,'#ff8a6a',e.owner);
  }}
 function attack(u,t){const D=UNITS[u.type];const d=distTo(u,t);
  if(D.proj==='arrow'){sfx('bow',u.x,u.y,u.owner);}if(D.proj==='arrow')projs.push({k:'arrow',sx:u.x,sy:u.y,t,tx:t.x,ty:t.y,life:0,dur:Math.max(.15,d/13),dmg:D.atk,owner:u.owner,atype:u.type,att:u});
@@ -394,12 +394,19 @@ function spawnFrom(b,ut){const rp=b.rally||{x:b.x+1,y:b.y+3};const n=nearestFree
  else if(ut==='peasant'&&players[b.owner].isHuman){const f=findFarm(b.owner,u.x,u.y);if(f)assignFarm(u,f);}
  u.guard={x:u.x,y:u.y};return u;}
 function canPlace(type,tx,ty,owner,ai){const D=BLD[type];
- for(let y=ty;y<ty+D.h;y++)for(let x=tx;x<tx+D.w;x++){if(!inb(x,y))return 'Out of bounds';const i=y*MAP+x;if(tiles[i])return 'Blocked by water';if(resT[i])return 'Blocked by resources';if(bgrid[i])return 'Blocked by building';if(fogOn&&visMap[owner]&&visMap[owner][i]===0)return 'Unexplored';
+ for(let y=ty;y<ty+D.h;y++)for(let x=tx;x<tx+D.w;x++){if(!inb(x,y))return 'Out of bounds';const i=y*MAP+x;if(tiles[i])return 'Blocked by water';if(resT[i])return 'Blocked by resources';if(bgrid[i]&&!(D.gate&&ownWall(bgrid[i],owner)))return 'Blocked by building';if(fogOn&&visMap[owner]&&visMap[owner][i]===0)return 'Unexplored';
   if(ai&&ai.ringSet&&!D.wall&&ai.ringSet.has(i))return 'reserved';}
  if(ai&&!D.wall){for(let y=ty-1;y<=ty+D.h;y++)for(let x=tx-1;x<=tx+D.w;x++){if(!inb(x,y))return 'edge';const b=bgrid[y*MAP+x];if(b&&!BLD[b.type].wall)return 'crowded';}}
  for(const u of units){if(u.dead||u.owner===owner)continue;if(u.x>=tx-.3&&u.x<=tx+D.w+.3&&u.y>=ty-.3&&u.y<=ty+D.h+.3)return 'Enemy units in the way';}
  return null;}
-function placeBuilding(type,tx,ty,owner){const p=players[owner];const c=BLD[type].cost;if(!afford(p,c))return null;if(canPlace(type,tx,ty,owner,p.isAI?p.ai:null))return null;pay(p,c);sfx('place',tx+BLD[type].w/2,ty+BLD[type].h/2,owner,BLD[type].wall?1:0);return spawnBld(type,tx,ty,owner,false);}
+// a Gate may be placed over the owner's own Wall tiles (built or not): the wall segment is replaced (no refund for a finished wall,
+// the usual full refund for an unfinished wall site). Enemy walls / other buildings still block. Walls never hold units, so nobody is trapped.
+const ownWall=(b,owner)=>b&&!b.dead&&b.type==='wall'&&b.owner===owner;
+function replaceWall(b){const p=players[b.owner];if(!b.built){refund(p,BLD.wall.cost);b.cancelled=true;}
+ b.dead=true;for(let y=b.ty;y<b.ty+b.h;y++)for(let x=b.tx;x<b.tx+b.w;x++)if(bgrid[y*MAP+x]===b)bgrid[y*MAP+x]=null;passGen++;mmDirty=true;
+ for(const u of units)if(!u.dead&&u.bld===b){u.bld=null;if(u.state==='build')u.state='idle';}}
+function placeBuilding(type,tx,ty,owner){const p=players[owner];const c=BLD[type].cost;if(!afford(p,c))return null;if(canPlace(type,tx,ty,owner,p.isAI?p.ai:null))return null;pay(p,c);
+ if(BLD[type].gate)for(let y=ty;y<ty+BLD[type].h;y++)for(let x=tx;x<tx+BLD[type].w;x++){const ob=bgrid[y*MAP+x];if(ownWall(ob,owner))replaceWall(ob);}sfx('place',tx+BLD[type].w/2,ty+BLD[type].h/2,owner,BLD[type].wall?1:0);return spawnBld(type,tx,ty,owner,false);}
 
 // ===== surrender & end =====
 function surrender(p,by,why){if(p.surrendered)return;p.surrendered=true;p.surT=time;const bp=players[by];
@@ -674,7 +681,19 @@ function applyCmd(pid,c){const P=players[pid];if(!P||P.surrendered||!c)return;
  case 'repair':{const b=byId.get(c.bid);const peas=mine.filter(u=>u.type==='peasant');if(!b||b.owner!==pid||!needsWork(b)){moveGroup(mine,+c.x,+c.y,false);break;}for(const u of peas)assignBuild(u,b);moveGroup(mine.filter(u=>u.type!=='peasant'),b.x,b.y+b.h/2+2,false);break;}
  case 'repairauto':{const b=byId.get(c.bid);if(!b||b.owner!==pid)break;if(!needsWork(b)){errMsg('That building is not damaged.','#ff9a8a',pid);break;}if(!repairAuto(pid,b)&&!buildersOf(b))errMsg('No peasant available to repair.','#ff9a8a',pid);break;}
  case 'cancelbld':{if(myB&&!myB.built){refund(P,BLD[myB.type].cost);myB.cancelled=true;killEnt(myB,-1);}break;}
+ case 'demolish':{const ids=Array.isArray(c.bids)?c.bids.slice(0,400):c.bid!=null?[c.bid]:[];let n=0,keep=false;
+  for(const id of ids){const b=byId.get(id);if(!b||b.dead||b.kind!=='bld'||b.owner!==pid)continue;
+   if(b.type==='keep'){keep=true;continue;}   // your only Keep: demolishing it would mean surrender, so it is not allowed
+   if(!b.built){refund(P,BLD[b.type].cost);b.cancelled=true;}else b.demolished=true;killEnt(b,-1);n++;}
+  if(keep)errMsg('The Keep cannot be demolished.','#ff9a8a',pid);break;}
+ case 'trade':{const r=c.res,amt=Math.floor(+c.amt);if(!TRADE_RES.includes(r)||!(amt>0)||amt>100000||amt%TRADE_RATE)break;
+  if(!myB||myB.type!=='market'||!myB.built){errMsg('Trading needs a finished Market.','#ff9a8a',pid);break;}
+  if(c.dir==='sell'){if(P.res[r]<amt){errMsg(`Not enough ${r} to sell.`,'#ff9a8a',pid);break;}P.res[r]-=amt;P.res.gold+=amt/TRADE_RATE;sfx('trade',myB.x,myB.y,pid);}
+  else if(c.dir==='buy'){const g=amt*TRADE_RATE;if(P.res.gold<g){errMsg('Not enough gold.','#ff9a8a',pid);break;}P.res.gold-=g;P.res[r]+=amt;sfx('trade',myB.x,myB.y,pid);}
+  break;}
  }}
+// Market: fixed gold-only rates. Sell 4 food/wood/stone -> 1 gold; buy 1 food/wood/stone for 4 gold.
+const TRADE_RATE=4,TRADE_RES=['food','wood','stone'];
 // ===== game setup / sim =====
 let simAcc=0,visT=0,mmT=0,winT=0;
 function setupGame(gseed,slots,diff,fog,size){
@@ -1008,11 +1027,23 @@ function drawTip(){if(!tip)return;const lines=[];if(tip.c)lines.push('Cost: '+co
  let x=clamp(mouse.x+12,4,W-w-4),y=mouse.y-h-10;if(y<40)y=mouse.y+20;ctx.fillStyle='rgba(20,14,8,.95)';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#a08040';ctx.strokeRect(x+.5,y+.5,w,h);
  text(tip.t,x+8,y+16,'#ffe7a8','bold 12px Georgia, serif');lines.forEach((l,i)=>{let col='#ddd';if(i===0&&tip.c)col=affordN(tip.c,1)?'#cfe8b0':'#ff9a8a';text(l,x+8,y+32+i*16,col,'12px Georgia, serif');});}
 function smallBtn(x,y,w,h,label,on,tipd,active){const hov=btn(x,y,w,h,on,{tip:tipd});ctx.fillStyle=active?'#6a7a3a':hov?'#5a4630':'#3a2c1c';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#7a6040';ctx.strokeRect(x+.5,y+.5,w-1,h-1);text(label,x+w/2,y+h/2+4,'#f0e0b0','12px Georgia, serif','center');}
+function demolishBtn(x,y,w){smallBtn(x,y,w,22,'Demolish (Del)',()=>demolishSel(),{t:'Demolish [Del / Backspace]',d:'Tears down the selected finished building(s) or walls. No refund. The Keep cannot be demolished.'});}
+// Market trade panel: sell 100 food/wood/stone for 25 gold, buy 100 for 400 gold (Shift+click = x10). Fixed rates.
+function drawTrade(m,x,y){const P=players[me];text('Trade (Shift+click ×10):',x,y-3,'#e8c870','bold 11px Georgia, serif');const lots=keys.has('shift')?10:1,a=100*lots;
+ TRADE_RES.forEach((r,i)=>{const bx=x+i*132;
+  const cs=P.res[r]>=a,cb=P.res.gold>=a*TRADE_RATE;
+  tradeBtn(bx,y+1,128,`Sell ${a} ${r} → ${a/TRADE_RATE}g`,cs,e=>tradeCmd(m,r,'sell',e&&e.shiftKey?10:1),{t:`Sell ${r}`,d:`${TRADE_RATE} ${r} = 1 gold. Sell 100 ${r} for 25 gold (Shift+click: 1000 for 250).`});
+  tradeBtn(bx,y+26,128,`Buy ${a} ${r} (${a*TRADE_RATE}g)`,cb,e=>tradeCmd(m,r,'buy',e&&e.shiftKey?10:1),{t:`Buy ${r}`,d:`1 ${r} costs ${TRADE_RATE} gold. Buy 100 ${r} for 400 gold (Shift+click: 1000 for 4000).`});});}
+function tradeBtn(x,y,w,label,can,on,tipd){const hov=btn(x,y,w,22,can?on:()=>{AU.play('err');},{tip:tipd});ctx.fillStyle=!can?'#241b12':hov?'#5a4630':'#3a2c1c';ctx.fillRect(x,y,w,22);ctx.strokeStyle=can?'#7a6040':'#4a3a28';ctx.strokeRect(x+.5,y+.5,w-1,21);text(label,x+w/2,y+15,can?'#f0e0b0':'#7a6a50','11px Georgia, serif','center');}
 function drawSelInfo(x,y,w){const P=players[me];
  if(!sel.length){text('Nothing selected',x,y+16,'#cdbb90','bold 14px Georgia, serif');
   const lines=['Left-click / drag to select units. Right-click to command.','Peasants: right-click trees, rocks, gold or farms to work.','Build from the menu at left. H = help, P = pause.'];lines.forEach((l,i)=>text(l,x,y+40+i*18,'#bba','12px Georgia, serif'));
   const idle=units.filter(u=>u.owner===me&&u.type==='peasant'&&u.state==='idle').length;smallBtn(x,y+96,150,24,`Idle peasants: ${idle} (.)`,selectIdle,{t:'Select next idle peasant (.)'});return;}
  const e=sel[0];
+ if(sel.length>1&&sel.every(b=>b.kind==='bld')){const n={};for(const b of sel)n[BLD[b.type].name]=(n[BLD[b.type].name]||0)+1;
+  text(`${sel.length} buildings selected`,x,y+16,'#ffe7a8','bold 15px Georgia, serif');text(Object.keys(n).map(k=>n[k]+'× '+k).join(', ').slice(0,120),x,y+36,'#ddd','12px Georgia, serif');
+  text('Shift+click adds/removes buildings; double-click selects all of that type on screen.',x,y+54,'#aa9','12px Georgia, serif');
+  demolishBtn(x,y+70,190);return;}
  if(sel.length===1||e.kind==='bld'){
   if(e.kind==='unit'){const D=UNITS[e.type];ctx.fillStyle='rgba(0,0,0,.3)';ctx.fillRect(x,y,64,80);drawIconUnit(e.type,x+32,y+62,2.2,e.owner);
    text(D.name+(e.owner!==me?` — ${players[e.owner].short}`:''),x+76,y+16,'#ffe7a8','bold 15px Georgia, serif');
@@ -1026,9 +1057,11 @@ function drawSelInfo(x,y,w){const P=players[me];
    text(D.desc,x+76,y+54,'#aa9','12px Georgia, serif');
    if(e.owner===me&&!e.built){text(`Builders: ${e.bc||0}${e.bc?'':' — construction paused! Right-click with peasants to build.'}`,x+76,y+76,e.bc?'#bfe6ff':'#ffb080','12px Georgia, serif');
     smallBtn(x+76,y+86,190,24,'Cancel construction (Del)',()=>issue({t:'cancelbld',bid:e.id}),{t:'Cancel construction',d:'Removes the site and refunds the full cost.'});return;}
+   if(e.owner===me&&e.built&&e.type!=='keep')demolishBtn(x+w-120,y,120);
+   if(e.owner===me&&e.built&&e.type==='market')drawTrade(e,x+76,y+72);
    if(e.owner===me&&e.built&&e.hp<e.maxhp-.5){const rc=repairCost(e,e.maxhp-e.hp);const cs=Object.keys(rc).map(r=>Math.ceil(rc[r])+' '+r).join(', ')||'free';
     text(e.bc?`✚ Repairing — ${e.bc} peasant${e.bc>1?'s':''}`:'Damaged — repair: right-click with peasants or N',x+76+ctx.measureText(`HP ${Math.ceil(e.hp)}/${e.maxhp}`).width+90,y+36,e.bc?'#9cf27a':'#ffb080','12px Georgia, serif');
-    const gx0=x+76+(D.train?D.train.length*50+200:0);const rx2=D.gar?(e.type==='keep'?gx0:gx0+106):gx0,ry2=D.gar&&e.type==='keep'?y+114:y+86;
+    const gx0=x+76+(D.train?D.train.length*50+200:e.type==='market'?400:0);const rx2=D.gar?(e.type==='keep'?gx0:gx0+106):gx0,ry2=D.gar&&e.type==='keep'?y+114:y+86;
     smallBtn(rx2,ry2,110,22,'Repair (N)',()=>repairSel(),{t:'Repair [N]',d:`Sends the nearest idle peasants (up to 3) to repair. Full repair costs ${cs}.`});}
    if(e.owner===me&&D.gar&&e.built){const gi=garInfo(e);const gx=x+76+(D.train?D.train.length*50+200:0);
     text(`Garrison ${gi.n}/${D.gar}`+(gi.n?` (+${gi.n+gi.a} arrows/volley)`:''),gx,y+76,'#d8c8ff','12px Georgia, serif');
@@ -1065,13 +1098,20 @@ function drawHelp(){uiBtns=[];tip=null;const [x,y]=overlayPanel(Math.min(W-40,90
  ['Command','Right-click ground to move, an enemy to attack. X then left-click = attack-move. C = stop. Ctrl/Shift+1-9 save a group, 1-9 recall it. "." = next idle peasant.'],
  ['Economy','Peasants gather wood (trees), stone (grey rocks), gold (glittering rocks): right-click them. Goods are carried to the Keep or nearest Lumber Camp / Quarry / Gold Mine. Farms give food: right-click a farm with peasants (2 per farm). Markets yield gold.'],
  ['Build','B opens the build menu, then a letter: H House, F Farm, L Lumber Camp, Q Quarry, G Gold Mine, M Market, B Barracks, S Stable, W Workshop, A Wall, E Gate, T Tower, O Fortress (Shift+letter = place several, Esc cancels). Or click a BUILD button. Place anywhere on open, explored ground that is not occupied by buildings, resources, water or enemy units (red ghost = invalid); there is no territory limit, expansion only needs peasants to walk there and build. Selected peasants (or the nearest idle one) walk over and build; more builders = faster (diminishing). Right-click a site or damaged building with peasants to build/repair, or select the building and press N (Repair: nearest idle peasants; costs wood/stone in proportion to damage). Del cancels a site (full refund; 50% back if destroyed unfinished).'],
+ ['Market','Select a finished Market to trade at fixed rates, gold only: sell 100 food, wood or stone for 25 gold (4:1), or buy 100 of them for 400 gold (1 for 4). Shift+click trades ×10. Greyed buttons mean you can\'t afford it. A Market also earns +0.5 gold/sec.'],
+ ['Demolish','Del or Backspace (or the Demolish button) tears down the selected finished buildings or walls you own, with no refund. On an unfinished site it cancels instead (full refund). Shift+click selects several buildings; double-click selects every one of that type on screen. The Keep cannot be demolished.'],
+ ['Gates','A Gate can be placed straight onto your own wall (green ghost): it replaces that wall segment (the wall\'s stone is not refunded). Gates can\'t go over enemy walls or other buildings.'],
  ['Garrison','Right-click your Keep (40), Fortress (30) or Tower (6) with peasants/spearmen/archers, or press G. Inside they are safe and shoot: every garrisoned unit adds 1 arrow per volley (archers 2). Keep: 4 arrows / 0.8 s, Fortress: 8 arrows / 0.8 s out to 11.5 tiles. U unloads (to the rally point). Town Bell: B with the Keep selected (or Shift+B anywhere) calls peasants first, then infantry inside; ring again to release — peasants resume work. Units flee out if the building falls.'],
  ['Army','Keep trains peasants; Barracks: spearmen & archers; Stable: knights; Workshop: catapults. Q/E/R/T train from the selected building (when the build menu is closed). Right-click with a building selected sets its rally point. Houses raise population.'],
  ['Counters','Spearmen beat knights. Knights crush archers & catapults. Archers shred infantry. Catapults demolish walls and buildings. Towers, Keeps and Fortresses shoot arrows.'],
  ['Rivals','Ravenmoor is aggressive and attacks early. Eldmark builds a big economy and strikes late with large armies. Stonehold walls itself in with towers. Rivals also fight each other.'],
+ ['Chat','Multiplayer only (lobby and matches): Enter opens the chat box, Enter sends to everyone, Esc cancels. While typing, game hotkeys are off. Mouse wheel over the open chat (or PgUp/PgDn) scrolls the history; recent messages fade after 10 s. There are no teams or alliances, so all chat goes to every player.'],
  ['Other','P / Esc pauses (restart from the pause menu). F toggles fog of war. H toggles this help. F3 shows the network status in multiplayer (ping, last server update, reconnects). M mutes sound; volume sliders are under the Sound button (top bar) and in the pause menu.']];
- text('How to Play',W/2,y+40,'#ffe7a8','bold 26px Georgia, serif','center');let yy=y+72;const mw=Math.min(W-40,900)-170;
- ctx.font='13px Georgia, serif';for(const [h,t] of L){text(h,x+24,yy,'#e8c870','bold 13px Georgia, serif');const words=t.split(' ');let line='';ctx.font='13px Georgia, serif';for(const w2 of words){if(ctx.measureText(line+w2).width>mw){text(line,x+130,yy,'#ddd');yy+=17;line='';}line+=w2+' ';}text(line,x+130,yy,'#ddd');yy+=24;}
+ text('How to Play',W/2,y+40,'#ffe7a8','bold 26px Georgia, serif','center');const PHh=Math.min(H-40,720),mw=Math.min(W-40,900)-170;
+ // wrap every row, then pick the largest font (13 -> 10 px) that fits above the Continue button
+ const wrap=(t,f)=>{ctx.font=f;const out=[];let line='';for(const w2 of t.split(' ')){if(line&&ctx.measureText(line+w2).width>mw){out.push(line);line='';}line+=w2+' ';}out.push(line);return out;};
+ let fs=13,rows;for(;fs>=10;fs--){rows=L.map(([h,t])=>[h,wrap(t,fs+'px Georgia, serif')]);const tot=rows.reduce((a,r)=>a+r[1].length*(fs+4)+7,0);if(tot<=PHh-130)break;}fs=Math.max(fs,10);
+ let yy=y+72;for(const [h,ls] of rows){text(h,x+24,yy,'#e8c870','bold '+fs+'px Georgia, serif');ls.forEach((l,i)=>text(l,x+130,yy+i*(fs+4),'#ddd',fs+'px Georgia, serif'));yy+=(ls.length-1)*(fs+4)+fs+11;}
  bigBtn(W/2-100,Math.min(yy+4,y+Math.min(H-40,720)-50),200,'Continue',()=>{showHelp=false;},true);}
 // ===== client: audio (WebAudio only, fully procedural) =====
 class BattleTimer{ // "under attack" state for the local kingdom: active until `hold` seconds after the last enemy hit
@@ -1128,6 +1168,7 @@ const AU=(()=>{
  const R=(a,b)=>a+Math.random()*(b-a);
  // ---------- sound effects: [gap s, max concurrent of kind, volume, owner-only, positional, fn(out,t,extra)->duration] ----------
  const FX={
+  chat:[.25,1,.35,0,0,(o,t)=>{tone(o,'sine',880,880,t,.004,.16,.12);tone(o,'sine',1318,1318,t+.07,.004,.12,.16);return .25;}],
   click:[.03,3,.45,0,0,(o,t)=>{tone(o,'sine',1500,900,t,.002,.3,.05);return .07;}],
   sel_peas:[.06,2,.4,0,0,(o,t)=>{tone(o,'sine',880,880,t,.003,.22,.07);tone(o,'sine',1320,1320,t+.05,.003,.18,.09);return .16;}],
   sel_mil:[.06,2,.45,0,0,(o,t)=>{tone(o,'triangle',392,392,t,.003,.3,.08);tone(o,'triangle',587,587,t+.05,.003,.25,.1);noise(o,'highpass',5000,5000,1,t,.001,.12,.03);return .17;}],
@@ -1163,6 +1204,7 @@ const AU=(()=>{
   alert:[2,1,.65,1,0,(o,t)=>{for(const s of [0,.85])for(const f of [220,330,440])tone(o,'sawtooth',f,f,t+s,.12,.12,.55,['lowpass',1000]);return 1.6;}],
   horn:[3,1,.7,1,0,(o,t)=>{for(const f of [110,165,220])tone(o,'sawtooth',f,f*.98,t,.35,.14,1.5,['lowpass',650]);tone(o,'sine',90,40,t,.002,.5,.4);tone(o,'sine',90,40,t+.5,.002,.5,.4);return 2;}],
   surr:[1,1,.65,0,0,(o,t)=>{for(const [k,p] of [[1,.3],[2.76,.12],[5.4,.06]])tone(o,'sine',196*k,0,t,.003,p,2.6);return 2.7;}],
+  trade:[.15,2,.45,1,0,(o,t)=>{for(let i=0;i<4;i++)tone(o,'sine',R(2300,3300),0,t+i*.05+R(0,.02),.001,.12,.12);tone(o,'triangle',660,880,t,.003,.08,.12);return .4;}],
   trib:[1,1,.55,1,0,(o,t)=>{for(let i=0;i<12;i++)tone(o,'sine',R(2000,3600),0,t+i*.07+R(0,.03),.001,.12,.15);return 1.1;}],
   victory:[2,1,.7,0,0,(o,t)=>{[60,64,67,72].forEach((n,i)=>{tone(o,'triangle',mtof(n),0,t+i*.16,.01,.25,.3);tone(o,'sawtooth',mtof(n),0,t+i*.16,.01,.06,.3,['lowpass',2000]);});
    for(const n of [72,76,79,84])tone(o,'triangle',mtof(n),0,t+.7,.04,.18,1.6);return 2.4;}],
@@ -1243,6 +1285,71 @@ const AU=(()=>{
 let audioPanelOpen=false,activeSlider=null;
 window.addEventListener('pointerdown',()=>AU.init(),{capture:true});
 window.addEventListener('keydown',()=>AU.init(),{capture:true});
+// ===== client: chat (server multiplayer only: LAN lobby + matches) =====
+// Enter opens the chat box (a real <input>, so the global hotkey handler ignores every key while typing),
+// Enter sends, Esc cancels. Solo: Enter does nothing. Messages are drawn on the canvas with fillText (never HTML).
+const CHAT_MAX=200,CHAT_SHOW=6,CHAT_FADE=10;
+let chatLog=[],chatOpen=false,chatScroll=0,chatDraft='',chatRect=null;
+const chatEl=(()=>{const e=document.createElement('input');e.type='text';e.maxLength=CHAT_MAX;e.id='chat-input';e.autocomplete='off';e.spellcheck=false;
+ e.placeholder='Message to everyone (Enter sends, Esc cancels)';e.setAttribute('aria-label','Chat message');
+ Object.assign(e.style,{position:'fixed',left:'12px',top:'0',width:'360px',height:'26px',boxSizing:'border-box',display:'none',font:'13px Georgia, serif',color:'#f6ecd2',
+  background:'rgba(20,14,8,.94)',border:'1px solid #c0a060',borderRadius:'3px',padding:'3px 8px',outline:'none',zIndex:5});
+ document.body.appendChild(e);return e;})();
+function cleanChatText(t){t=String(t==null?'':t).replace(/[\u0000-\u001F\u007F-\u009F\u200B\u200E\u200F\u2028-\u202E\u2066-\u2069\uFEFF]/g,' ').replace(/\s+/g,' ').trim();const a=Array.from(t);return a.length>CHAT_MAX?a.slice(0,CHAT_MAX).join(''):t;}
+function chatAvailable(){return netKind==='server'&&netAvailable&&(state==='lobby'||(mode==='net'&&inGame()));}
+function chatBox(){if(state==='lobby'){const w=Math.min(380,Math.max(240,W/2-340));return{x:Math.max(12,W-w-12),w,bottom:H-12};}const w=Math.min(420,W-24);return{x:12,w,bottom:H-PH-12};}
+function openChat(){if(!chatAvailable())return false;chatOpen=true;keys.clear();buildMenuOpen=false;chatScroll=0;
+ const b=chatBox();chatEl.style.left=b.x+'px';chatEl.style.width=b.w+'px';chatEl.style.top=(b.bottom-26)+'px';chatEl.style.display='block';chatEl.value=chatDraft;chatEl.focus();return true;}
+function closeChat(keepDraft){if(!chatOpen)return;chatOpen=false;chatDraft=keepDraft?chatEl.value:'';chatEl.style.display='none';chatEl.blur();keys.clear();}
+function sendChat(raw){const t=cleanChatText(raw);if(!t)return;
+ if(/^\/(t|team|ally|allies)(\s|$)/i.test(t)){chatLocal('There are no teams or alliances: every kingdom fights alone, so chat always goes to everyone. Not sent.');return;}
+ const body=t.replace(/^\/all\s+/i,'');if(body)netSend({t:'chat',ch:'all',text:body});}
+function chatLocal(text){chatLog.push({sys:true,local:true,text,ts:Date.now(),rt:Date.now()});trimChat();}
+function trimChat(){if(chatLog.length>100)chatLog.splice(0,chatLog.length-100);}
+// called for every chat message from the server (even before Join LAN, so the lobby shows recent history)
+function onChat(m){
+ if(m.t==='chathist'){chatLog=(Array.isArray(m.items)?m.items:[]).map(x=>({...x,text:cleanChatText(x.text),rt:0}));chatScroll=0;return;}
+ const e={...m,text:cleanChatText(m.text),rt:Date.now()};if(!e.text)return;chatLog.push(e);trimChat();
+ if(netKind==='server'&&!e.sys&&e.cid!==myCid)AU.ui('chat');}
+chatEl.addEventListener('keydown',e=>{e.stopPropagation();
+ if(e.key==='Enter'){e.preventDefault();const v=chatEl.value;closeChat(false);sendChat(v);}
+ else if(e.key==='Escape'){e.preventDefault();closeChat(false);}
+ else if(e.key==='PageUp'){e.preventDefault();chatScroll+=5;}else if(e.key==='PageDown'){e.preventDefault();chatScroll=Math.max(0,chatScroll-5);}});
+chatEl.addEventListener('keyup',e=>e.stopPropagation());
+chatEl.addEventListener('blur',()=>{if(chatOpen)closeChat(true);});   // clicking the map closes the box, keeping what was typed
+function chatWheel(dy){if(!chatOpen||!chatRect||!inRect(mouse.x,mouse.y,chatRect))return false;chatScroll=Math.max(0,chatScroll+(dy<0?3:-3));return true;}
+const chatColor=m=>m.sys?'#d8c48a':(m.slot>=0&&KINGDOMS[m.slot]?rgb(KINGDOMS[m.slot].color,1.35):'#c8c8c8');
+const hhmm=ts=>{const d=new Date(ts);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');};
+// word-wrap one message into lines; the first line carries the coloured "Name:" prefix
+function chatLines(m,width){const font='13px Georgia, serif';const pre=m.sys?'':m.name+': ';const tsS=m.ts?hhmm(m.ts)+' ':'';
+ ctx.font='11px Georgia, serif';const tsW=ctx.measureText(tsS).width;ctx.font='bold '+font;const preW=pre?ctx.measureText(pre).width:0;ctx.font=m.sys?'italic '+font:font;
+ const M=s=>ctx.measureText(s).width,out=[];let line='',ind=tsW+preW;const push=()=>{out.push({t:line,ind});line='';ind=8;};
+ for(let w of m.text.split(' ')){
+  while(M(w)>width-8){if(line||ind>8)push();let i=w.length;while(i>1&&M(w.slice(0,i))>width-ind)i--;line=w.slice(0,i);push();w=w.slice(i);}   // hard-break very long words
+  const t=line?line+' '+w:w;if(M(t)>width-ind){if(line||ind>8)push();line=w;}else line=t;}
+ out.push({t:line,ind});Object.assign(out[0],{first:true,ts:tsS,tsW,pre});return out;}
+function drawChatLine(m,L,x,y,alpha){ctx.globalAlpha=alpha;const font='13px Georgia, serif';
+ if(L.first){if(L.ts)text(L.ts,x,y,'#8a8270','11px Georgia, serif');if(L.pre)text(L.pre,x+L.tsW,y,chatColor(m),'bold '+font);}
+ text(L.t,x+L.ind,y,m.sys?'#d8c48a':'#f2ead6',m.sys?'italic '+font:font);ctx.globalAlpha=1;}
+function drawChat(){chatRect=null;if(chatOpen&&!chatAvailable())closeChat(false);
+ const lobbyV=state==='lobby'&&netKind==='server'&&netAvailable;if(!(chatOpen||lobbyV||(mode==='net'&&inGame())))return;
+ const b=chatBox(),lh=17,inner=b.w-16;
+ if(chatOpen){chatEl.style.left=b.x+'px';chatEl.style.width=b.w+'px';chatEl.style.top=(b.bottom-26)+'px';}
+ if(chatOpen||lobbyV){   // panel with scrollable history
+  const maxL=Math.max(3,Math.min(chatOpen?14:8,Math.floor((b.bottom-(state==='lobby'?60:90))/lh)-3));
+  const all=[];for(const m of chatLog)for(const L of chatLines(m,inner))all.push([m,L]);
+  chatScroll=Math.min(chatScroll,Math.max(0,all.length-maxL));const end=all.length-chatScroll,view=all.slice(Math.max(0,end-maxL),end);
+  const ph=maxL*lh+(chatOpen?40:30),py=b.bottom-ph;chatRect={x:b.x,y:py,w:b.w,h:ph};
+  ctx.fillStyle='rgba(10,8,5,.66)';ctx.fillRect(b.x,py,b.w,ph);ctx.strokeStyle='rgba(192,160,96,.5)';ctx.strokeRect(b.x+.5,py+.5,b.w-1,ph-1);
+  text(chatScroll>0?`Chat  ▲ ${chatScroll} newer below (wheel / PgDn)`:'Chat',b.x+8,py+14,'#e8c870','bold 11px Georgia, serif');
+  let y=py+18+lh;if(!view.length)text(chatOpen?'No messages yet.':'No messages yet. Press Enter to chat.',b.x+8,y,'#8a8270','italic 12px Georgia, serif');
+  for(const [m,L] of view){drawChatLine(m,L,b.x+8,y,1);y+=lh;}
+  if(!chatOpen)text('Enter: chat',b.x+b.w-8,b.bottom-8,'#8a8270','11px Georgia, serif','right');
+  return;}
+ // closed, in a match: the last few messages, fading out after ~10 s; never intercepts the mouse
+ const now=Date.now(),rec=chatLog.filter(m=>m.rt&&now-m.rt<CHAT_FADE*1000).slice(-CHAT_SHOW);if(!rec.length)return;
+ const rows=[];for(const m of rec){const a=clamp((CHAT_FADE*1000-(now-m.rt))/1500,0,1);for(const L of chatLines(m,inner))rows.push([m,L,a]);}
+ let y=b.bottom-6-(rows.length-1)*lh;for(const [m,L,a] of rows){ctx.globalAlpha=a*.55;ctx.fillStyle='#000';ctx.fillRect(b.x,y-13,b.w,lh);ctx.globalAlpha=1;drawChatLine(m,L,b.x+8,y,a);y+=lh;}}
 // ===== client: commands =====
 function issue(c){if(mode==='net')netSend({t:'cmd',c});else applyCmd(me,c);}
 function marker(x,y,c){markers.push({x,y,c,t:time});}
@@ -1281,8 +1388,17 @@ function selSound(){const e=sel[0];if(!e)return;if(e.kind==='bld')AU.play('sel_b
 function clickSelect(sx,sy,add){const e=pickAt(sx,sy);const now=performance.now();
  if(!e){if(!add)sel=[];return;}const prevSel=sel.slice();setTimeout(()=>{if(sel.length&&(sel.length!==prevSel.length||sel.some((x,i)=>x!==prevSel[i])))selSound();},0);
  if(e.kind==='unit'&&e.owner===me&&now-lastClick.t<350&&lastClick.type===e.type){sel=units.filter(u=>u.owner===me&&!u.inG&&u.type===e.type&&onScreen(u.x,u.y,0));lastClick.t=0;return;}
- lastClick={t:now,type:e.kind==='unit'?e.type:null};
+ lastClick={t:now,type:e.kind==='unit'?e.type:e.owner===me?'b:'+e.type:null};
+ if(e.kind==='bld'&&e.owner===me&&now-lastClick.t<350&&lastClick.type==='b:'+e.type){sel=blds.filter(b=>!b.dead&&b.owner===me&&b.type===e.type&&onScreen(b.x,b.y,0));lastClick.t=0;return;}
+ if(add&&e.kind==='bld'&&e.owner===me&&sel.length&&sel.every(x=>x.kind==='bld'&&x.owner===me)){lastClick={t:now,type:'b:'+e.type};const i=sel.indexOf(e);if(i>=0)sel.splice(i,1);else sel.push(e);return;}
  if(add&&e.kind==='unit'&&e.owner===me){sel=sel.filter(x=>x.kind==='unit');const i=sel.indexOf(e);if(i>=0)sel.splice(i,1);else sel.push(e);}else sel=[e];}
+// Delete / Backspace / panel button: unfinished sites are cancelled (full refund), finished own buildings and walls are demolished
+// (no refund). The Keep can never be demolished (it is your only one; losing it means defeat).
+function demolishSel(){const bs=sel.filter(b=>b.kind==='bld'&&!b.dead&&b.owner===me);if(!bs.length)return;const rest=bs.filter(b=>b.type!=='keep');
+ if(!rest.length){msg('The Keep cannot be demolished.','#ff9a8a',me);AU.play('err');return;}
+ if(rest.length===1&&!rest[0].built)issue({t:'cancelbld',bid:rest[0].id});else issue({t:'demolish',bids:rest.map(b=>b.id)});
+ sel=sel.filter(x=>!rest.includes(x));AU.ui('click');}
+function tradeCmd(m,res,dir,lots){const amt=100*lots;issue({t:'trade',bid:m.id,res,dir,amt});}
 function tryPlace(spots){const D=BLD[placing];const ok=[];let why=null;for(const s of spots){const w=canPlace(placing,s[0],s[1],me,null);if(w){why=w;continue;}ok.push(s);}
  if(!ok.length){msg('Cannot build here: '+(why||'invalid'),'#ff9a8a',me);AU.play('err');return false;}
  if(!afford(players[me],D.cost)){msg('Not enough resources for '+D.name+'.','#ff9a8a',me);AU.play('err');return false;}
@@ -1301,7 +1417,7 @@ cv.addEventListener('mousemove',e=>{mouse.x=e.clientX;mouse.y=e.clientY;mouse.in
  if(mouse.mmDrag){const w=mmToWorld(mouse.x,mouse.y);centerOn(clamp(w.x,0,MAP),clamp(w.y,0,MAP));}
  if(mouse.rdown||mouse.mdown){if(Math.hypot(mouse.x-mouse.rsx,mouse.y-mouse.rsy)>6)mouse.rdrag=true;if(mouse.rdrag){cam.x=mouse.camSX-(mouse.x-mouse.rsx)/cam.z;cam.y=mouse.camSY-(mouse.y-mouse.rsy)/cam.z;clampCam();}}});
 cv.addEventListener('mousedown',e=>{mouse.x=e.clientX;mouse.y=e.clientY;mouse.inside=true;
- if(e.button===0){const b=hitBtn();if(b){if(b.slider)activeSlider=b;else AU.ui('click');b.on();return;}if(overlayUp())return;if(!inGame())return;
+ if(e.button===0){const b=hitBtn();if(b){if(b.slider)activeSlider=b;else AU.ui('click');b.on(e);return;}if(overlayUp())return;if(!inGame())return;
   if(inRect(mouse.x,mouse.y,mmRect())){mouse.mmDrag=true;const w=mmToWorld(mouse.x,mouse.y);centerOn(clamp(w.x,0,MAP),clamp(w.y,0,MAP));return;}
   if(mouseOverUI())return;
   if(placing){const D=BLD[placing];if(D.wall){const w=screenToWorld(mouse.x,mouse.y);wallStart=[Math.floor(w.x),Math.floor(w.y)];}else{if(tryPlace([placeSpot()])&&!e.shiftKey&&!placeSticky)placing=null;}return;}
@@ -1317,11 +1433,12 @@ window.addEventListener('mouseup',e=>{
   if(mouse.ldown){mouse.ldown=false;if(mouse.dragging)boxSelect(mouse.sx,mouse.sy,mouse.x,mouse.y,e.shiftKey);else clickSelect(mouse.x,mouse.y,e.shiftKey);mouse.dragging=false;}}
  else if(e.button===2){if(mouse.rdown&&!mouse.rdrag&&inGame()&&!overlayUp()&&!mouseOverUI())cmdRight(mouse.x,mouse.y,false);mouse.rdown=false;mouse.rdrag=false;}
  else if(e.button===1){mouse.mdown=false;mouse.rdrag=false;}});
-cv.addEventListener('wheel',e=>{e.preventDefault();if(!inGame())return;zoomAt(mouse.x,mouse.y,e.deltaY<0?1.12:1/1.12);},{passive:false});
+cv.addEventListener('wheel',e=>{e.preventDefault();if(chatWheel(e.deltaY))return;if(!inGame())return;zoomAt(mouse.x,mouse.y,e.deltaY<0?1.12:1/1.12);},{passive:false});
 function zoomAt(sx,sy,f){const px=(sx-W/2)/cam.z+cam.x,py=(sy-H/2)/cam.z+cam.y;cam.z=clamp(cam.z*f,0.45,2.2);cam.x=px-(sx-W/2)/cam.z;cam.y=py-(sy-H/2)/cam.z;clampCam();}
 function clampCam(){cam.x=clamp(cam.x,-MAP*32,MAP*32);cam.y=clamp(cam.y,0,MAP*32);}
 window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'))return;
  if(k==='f3'){e.preventDefault();showNet=!showNet;return;}
+ if(k==='enter'&&!e.repeat&&!e.altKey&&!e.ctrlKey&&!e.metaKey){if(openChat()){e.preventDefault();keys.clear();}return;}   // chat (multiplayer only; a no-op in solo)
  if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k))e.preventDefault();
  keys.add(k);if(k==='m'&&!e.repeat&&!(buildMenuOpen&&inGame())){AU.init();AU.toggleMute();msg(AU.S.muted?'Sound muted (M)':'Sound on (M)','#cdbb90',me);}if(!inGame())return;
  if(buildMenuOpen&&state==='play'&&k.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey){keys.delete(k);const ty=BUILD_KEY_OF[k];buildMenuOpen=false;
@@ -1338,7 +1455,7 @@ window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(e.target&&(
  else if(k==='g')garrisonSel();
  else if(k==='u')unloadSel();
  else if(k==='n')repairSel();
- else if(k==='delete'||k==='backspace'){const b=sel[0];if(b&&b.kind==='bld'&&b.owner===me&&!b.built)issue({t:'cancelbld',bid:b.id});}
+ else if(k==='delete'||k==='backspace'){e.preventDefault();demolishSel();}
  else if(k===' '){const P=players[me];const pg=pings.filter(p=>p.o===me).pop();if(pg&&time-pg.t<20)centerOn(pg.x,pg.y);else if(P.keep&&!P.keep.dead)centerOn(P.keep.x,P.keep.y);else{const k2=blds.find(b=>b.owner===me&&b.type==='keep');if(k2)centerOn(k2.x,k2.y);}}
  else if(k==='.')selectIdle();
  else if('qert'.includes(k)&&k.length===1){const b=sel[0];if(b&&b.kind==='bld'&&b.owner===me&&b.built&&BLD[b.type].train){const ut=BLD[b.type].train['qert'.indexOf(k)];if(ut)trainCmd(b,ut);}}
@@ -1389,6 +1506,7 @@ function netConnect(){if(!/^https?:$/.test(location.protocol))return;try{ws=new 
  ws.onmessage=ev=>{const now=performance.now();NS.lastMsgT=now;NS.rxB+=ev.data.length;let m;try{m=JSON.parse(ev.data);}catch(e){return;}
   if(m.t==='snap'){wsConn.send('{"t":"ack","n":'+(m.n|0)+'}');NS.seq=m.n|0;NS.srvSkipped=m.sk|0;if(NS.lastSnapT)NS.snapIv=NS.snapIv*.85+Math.min(1000,now-NS.lastSnapT)*.15;NS.lastSnapT=now;NS.rxN++;m.__rt=now;if(netKind==='server'&&mode==='net')queueSnap(m);return;}
   if(m.t==='pong'){NS.rtt=Math.round(now-m.c);return;}
+  if(m.t==='chat'||m.t==='chathist'){try{onChat(m);}catch(e){netErr('chat',e);}return;}
   if(m.t==='version'){onSrvVersion(m);return;}if(m.t==='welcome')srvCid=m.cid;if(m.t==='lobby')srvLobby=m;
   if(netKind==='server'){try{handleNet(m);}catch(e){netErr(m.t,e);}}};
  ws.onclose=()=>{if(ws&&!ws.__open)wsFails++;const srv=netKind==='server';const was=srv&&mode==='net';netAvailable=false;ws=null;srvLobby=null;pendSnap=null;
@@ -1485,7 +1603,7 @@ function drawMenu(){uiBtns=[];tip=null;const [x,y]=overlayPanel(600,560);
   text('v'+APP_VERSION+(srvVer?`  ·  server v${srvVer}`:''),x+590,y+16,'#887','11px Georgia, serif','right');
   if(upd)text(srvUpd.selfUpdate?`Server update v${srvUpd.latest}: ${srvUpd.update==='failed'?'failed — see host window':'installs when no game is running'}`:`Server update v${srvUpd.latest} available — rebuild/pull the server`,W/2,y+557,'#ffd27a','10px Georgia, serif','center');
   let u=null;try{u=sessionStorage.getItem('kom_updated');}catch(e){}if(u&&u===srvVer)text('✓ updated to v'+u,x+10,y+16,'#9d9','11px Georgia, serif');}
- text('H: help   B: build menu   P/Esc: pause   M: mute   WASD/arrows/edges/right-drag: pan   Wheel: zoom',W/2,y+545,'#998','11px Georgia, serif','center');
+ text('H: help   B: build menu   P/Esc: pause   M: mute   WASD/arrows: pan   Wheel: zoom   Enter: chat (LAN)',W/2,y+545,'#998','11px Georgia, serif','center');
 }
 function drawLobby(){uiBtns=[];tip=null;const [x,y]=overlayPanel(640,560);
  text('LAN Lobby',W/2,y+48,'#ffe7a8','bold 30px Georgia, serif','center');
@@ -1534,8 +1652,8 @@ function frame(now){const rdt=Math.max(0,(now-last)/1000),dt=Math.min(.1,rdt);la
  if(mode==='net'){flushSnap();if(inGame())netFrame(Math.min(rdt,1));}
  if(inGame()){vis=visMap[me]||vis;checkOutcome();pings=pings.filter(p=>time-p.t<20);if(endShown&&(state==='won'||state==='lost')){}}
  updateCamera(dt);
- if(state==='menu'||state==='lobby'){cam.x+=Math.sin(now/9000)*0.3;renderWorld(true);if(state==='menu'){if(showHelp)drawHelp();else drawMenu();}else drawLobby();AU.panel(16,H-144);drawTip();}
- else{const r0=performance.now();renderWorld(false);renderMs=renderMs*.9+(performance.now()-r0)*.1;drawUI();drawNetStatus();if(showHelp)drawHelp();else if(state==='paused')drawPause();else if((state==='won'||state==='lost')&&!endShown)drawEnd();}
+ if(state==='menu'||state==='lobby'){cam.x+=Math.sin(now/9000)*0.3;renderWorld(true);if(state==='menu'){if(showHelp)drawHelp();else drawMenu();}else{drawLobby();drawChat();}AU.panel(16,H-144);drawTip();}
+ else{const r0=performance.now();renderWorld(false);renderMs=renderMs*.9+(performance.now()-r0)*.1;drawUI();drawChat();drawNetStatus();if(showHelp)drawHelp();else if(state==='paused')drawPause();else if((state==='won'||state==='lost')&&!endShown)drawEnd();}
  }catch(err){console.error(err);window.__lastError=String(err&&err.stack||err);}
  requestAnimationFrame(frame);}
 previewMap();netConnect();requestAnimationFrame(frame);

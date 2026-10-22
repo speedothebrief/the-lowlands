@@ -6,6 +6,6 @@ printf "const APP_VERSION='%s';\n" "$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/
 echo '/*SIM-BEGIN*/'
 cat p1.js p2.js p3.js p8.js
 echo '/*SIM-END*/'
-cat p0client.js p4.js p5.js p6.js p9audio.js p7.js
+cat p0client.js p4.js p5.js p6.js p9audio.js p65chat.js p7.js
 printf '</script>\n</body></html>\n'
 } > ../index.html

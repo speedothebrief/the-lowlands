@@ -167,6 +167,47 @@ A.setupGame(555,[{human:true}],'normal',false);run(150);g=A.get();{const ai=g.pl
  const inside=A.get().units.filter(u=>u.owner===1&&u.inG).length;ok(ai.bell&&inside>0,`raided AI rang its bell and hid ${inside} peasants`);
  for(const u of A.get().units)if(u.owner===0&&u.type==='knight')u.dead=true;run(25);ok(!ai.bell&&A.get().units.filter(u=>u.owner===1&&u.inG).length===0,'AI releases peasants once the raiders are gone');}
 
+console.log('--- market trading (gold only, 4:1)');
+{A.setupGame(321,[{human:true}],'normal',false);g=A.get();const P=g.players[0],K=P.keep;
+ const spotFor=(ty,r0=4)=>{for(let r=r0;r<30;r++)for(let y=-r;y<=r;y++)for(let x=-r;x<=r;x++){if(Math.max(Math.abs(x),Math.abs(y))!==r)continue;const tx=Math.floor(K.x)+x,ty2=Math.floor(K.y)+y;if(!A.canPlace(ty,tx,ty2,0,null))return [tx,ty2];}};
+ const ms=spotFor('market',5);const site=A.spawnBld('market',ms[0],ms[1],0,false);
+ P.res.wood=1000;A.applyCmd(0,{t:'trade',bid:site.id,res:'wood',dir:'sell',amt:100});ok(P.res.wood===1000,'unfinished Market cannot trade');
+ const M=A.spawnBld('market',ms[0]+4,ms[1],0,true);
+ P.res.gold=0;P.res.wood=1000;A.applyCmd(0,{t:'trade',bid:M.id,res:'wood',dir:'sell',amt:1000});ok(P.res.wood===0&&P.res.gold===250,`sell 1000 wood -> 250 gold (wood ${P.res.wood}, gold ${P.res.gold})`);
+ P.res.gold=4000;P.res.wood=0;A.applyCmd(0,{t:'trade',bid:M.id,res:'wood',dir:'buy',amt:1000});ok(P.res.wood===1000&&P.res.gold===0,`buy 1000 wood for 4000 gold (wood ${P.res.wood}, gold ${P.res.gold})`);
+ P.res.gold=399;A.applyCmd(0,{t:'trade',bid:M.id,res:'stone',dir:'buy',amt:100});ok(P.res.gold===399,'buy refused with too little gold');
+ P.res.food=99;A.applyCmd(0,{t:'trade',bid:M.id,res:'food',dir:'sell',amt:100});ok(P.res.food===99,'sell refused with too little food');
+ P.res.gold=1e4;const before=JSON.stringify(P.res);
+ for(const bad of [{res:'gold',dir:'buy',amt:100},{res:'wood',dir:'buy',amt:-100},{res:'wood',dir:'sell',amt:101},{res:'wood',dir:'buy',amt:'1e9'},{res:'wood',dir:'steal',amt:100},{res:'__proto__',dir:'buy',amt:100}])A.applyCmd(0,Object.assign({t:'trade',bid:M.id},bad));
+ ok(JSON.stringify(P.res)===before,'invalid trades (gold for gold, negative, not a multiple of 4, huge, bad direction/resource) do nothing');
+ const em=A.spawnBld('market',ms[0],ms[1]+4,1,true);g.players[1].res.wood=500;P.res.wood=500;A.applyCmd(0,{t:'trade',bid:em.id,res:'wood',dir:'sell',amt:100});ok(P.res.wood===500,'cannot trade at an enemy Market');
+
+ console.log('--- demolish');
+ const H=A.spawnBld('house',spotFor('house')[0],spotFor('house')[1],0,true);const w1=A.spawnBld('wall',K.tx-3,K.ty-3,0,true),w2=A.spawnBld('wall',K.tx-2,K.ty-3,0,true);
+ const eh=A.spawnBld('house',...spotFor('house'),1,true);const res0=JSON.stringify(P.res);
+ A.applyCmd(1,{t:'demolish',bids:[H.id]});ok(!H.dead,'cannot demolish another kingdom\'s building');
+ A.applyCmd(0,{t:'demolish',bids:[H.id,w1.id,w2.id,eh.id]});ok(H.dead&&w1.dead&&w2.dead&&!eh.dead,'demolish removes several own finished buildings/walls at once (not the enemy house in the list)');
+ ok(JSON.stringify(P.res)===res0,'no refund for demolished buildings');
+ ok(A.canPlace('wall',K.tx-3,K.ty-3,0,null)===null,'demolished wall tile is free again');
+ const site2=A.spawnBld('tower',...spotFor('tower'),0,false);const st0=P.res.stone,wd0=P.res.wood;A.applyCmd(0,{t:'demolish',bids:[site2.id]});
+ ok(site2.dead&&P.res.stone===st0+A.BLD.tower.cost.stone&&P.res.wood===wd0+(A.BLD.tower.cost.wood||0),'demolishing an unfinished site cancels it with the full refund');
+ A.applyCmd(0,{t:'demolish',bids:[K.id]});run(.5);ok(!K.dead&&!P.surrendered,'the Keep cannot be demolished');
+ A.applyCmd(0,{t:'demolish',bid:M.id});ok(M.dead,'single bid form works too');
+
+ console.log('--- gates over own walls');
+ const gx=K.tx+6,gy=K.ty-4;const walls=[0,1,2].map(i=>A.spawnBld('wall',gx+i,gy,0,true));
+ ok(A.canPlace('gate',gx+1,gy,0,null)===null,'Gate over own wall: valid (green preview)');
+ ok(A.canPlace('wall',gx+1,gy,0,null)!==null&&A.canPlace('tower',gx,gy,0,null)!==null&&A.canPlace('house',gx,gy,0,null)!==null,'walls/other buildings over a wall are still invalid');
+ ok(A.canPlace('gate',gx+1,gy,1,null)!==null,'another kingdom cannot place a Gate over my wall');
+ ok(A.canPlace('gate',K.tx,K.ty,0,null)!==null,'Gate over a non-wall building is invalid');
+ P.res.stone=500;P.res.wood=500;const s0=P.res.stone;A.applyCmd(0,{t:'build',type:'gate',spots:[[gx+1,gy]],ids:[]});
+ const gt=A.get().blds.find(b=>b.type==='gate'&&!b.dead&&b.tx===gx+1&&b.ty===gy);
+ ok(gt&&walls[1].dead&&!walls[0].dead&&!walls[2].dead&&P.res.stone===s0-A.BLD.gate.cost.stone,'build command replaces the wall segment with a Gate site (wall not refunded, gate paid)');
+ const ws=A.spawnBld('wall',gx+5,gy,0,false);P.res.stone=100;A.applyCmd(0,{t:'build',type:'gate',spots:[[gx+5,gy]],ids:[]});ok(ws.dead&&P.res.stone===100-A.BLD.gate.cost.stone+A.BLD.wall.cost.stone,'Gate over an unfinished wall site: the site is cancelled with its refund');
+ gt.built=true;gt.prog=1;gt.hp=gt.maxhp;const pz=A.spawnUnit('peasant',gx+1.5,gy-2.5,0);A.applyCmd(0,{t:'move',ids:[pz.id],x:gx+1.5,y:gy+2.5});run(8);
+ ok(pz.y>gy+1.5,`own peasant walks through the new Gate (y ${pz.y.toFixed(1)})`);
+ const ew=A.spawnBld('wall',gx+8,gy,1,true);P.res.stone=500;A.applyCmd(0,{t:'build',type:'gate',spots:[[gx+8,gy]],ids:[]});ok(!ew.dead&&!A.get().blds.some(b=>b.type==='gate'&&!b.dead&&b.tx===gx+8),'cannot place a Gate over an enemy wall');}
+
 console.log('--- map sizes');
 for(const [sz,M] of [['small',96],['medium',144],['large',192]]){A.setupGame(77,[{human:true}],'normal',true,sz);g=A.get();
  let trees=0,gold=0;for(let i=0;i<g.resT.length;i++){if(g.resT[i]===1)trees++;if(g.resT[i]===3)gold++;}

@@ -53,6 +53,7 @@ const AU=(()=>{
  const R=(a,b)=>a+Math.random()*(b-a);
  // ---------- sound effects: [gap s, max concurrent of kind, volume, owner-only, positional, fn(out,t,extra)->duration] ----------
  const FX={
+  chat:[.25,1,.35,0,0,(o,t)=>{tone(o,'sine',880,880,t,.004,.16,.12);tone(o,'sine',1318,1318,t+.07,.004,.12,.16);return .25;}],
   click:[.03,3,.45,0,0,(o,t)=>{tone(o,'sine',1500,900,t,.002,.3,.05);return .07;}],
   sel_peas:[.06,2,.4,0,0,(o,t)=>{tone(o,'sine',880,880,t,.003,.22,.07);tone(o,'sine',1320,1320,t+.05,.003,.18,.09);return .16;}],
   sel_mil:[.06,2,.45,0,0,(o,t)=>{tone(o,'triangle',392,392,t,.003,.3,.08);tone(o,'triangle',587,587,t+.05,.003,.25,.1);noise(o,'highpass',5000,5000,1,t,.001,.12,.03);return .17;}],
@@ -88,6 +89,7 @@ const AU=(()=>{
   alert:[2,1,.65,1,0,(o,t)=>{for(const s of [0,.85])for(const f of [220,330,440])tone(o,'sawtooth',f,f,t+s,.12,.12,.55,['lowpass',1000]);return 1.6;}],
   horn:[3,1,.7,1,0,(o,t)=>{for(const f of [110,165,220])tone(o,'sawtooth',f,f*.98,t,.35,.14,1.5,['lowpass',650]);tone(o,'sine',90,40,t,.002,.5,.4);tone(o,'sine',90,40,t+.5,.002,.5,.4);return 2;}],
   surr:[1,1,.65,0,0,(o,t)=>{for(const [k,p] of [[1,.3],[2.76,.12],[5.4,.06]])tone(o,'sine',196*k,0,t,.003,p,2.6);return 2.7;}],
+  trade:[.15,2,.45,1,0,(o,t)=>{for(let i=0;i<4;i++)tone(o,'sine',R(2300,3300),0,t+i*.05+R(0,.02),.001,.12,.12);tone(o,'triangle',660,880,t,.003,.08,.12);return .4;}],
   trib:[1,1,.55,1,0,(o,t)=>{for(let i=0;i<12;i++)tone(o,'sine',R(2000,3600),0,t+i*.07+R(0,.03),.001,.12,.15);return 1.1;}],
   victory:[2,1,.7,0,0,(o,t)=>{[60,64,67,72].forEach((n,i)=>{tone(o,'triangle',mtof(n),0,t+i*.16,.01,.25,.3);tone(o,'sawtooth',mtof(n),0,t+i*.16,.01,.06,.3,['lowpass',2000]);});
    for(const n of [72,76,79,84])tone(o,'triangle',mtof(n),0,t+.7,.04,.18,1.6);return 2.4;}],

@@ -127,6 +127,20 @@ async function trackDrawn(pg,ms,order){return pg.evaluate(async(ms,order)=>{cons
  ok(seen,"LAN: Bob's B,H placement creates a site that his peasant builds (builder count visible in Alice's stream)");
  await b.evaluate(()=>issue({t:'bell'}));let gb=false;for(let i=0;i<30&&!gb;i++){await sleep(500);gb=await a.evaluate(()=>players[2].bell&&blds.some(x=>x.owner===2&&x.type==='keep'&&x.garN>0));}
  ok(gb,"LAN: Bob's Town Bell garrisons his peasants (server-authoritative, seen by Alice)");
+ // ---- chat: Enter opens, game hotkeys are off while typing, Enter sends, the message renders for the other player, Esc closes
+ {await b.bringToFront();await b.evaluate(()=>{sel=[];buildMenuOpen=false;placing=null;});await sleep(100);const mute0=await b.evaluate(()=>AU.S.muted);
+  await b.keyboard.press('Enter');await sleep(100);const op=await b.evaluate(()=>chatOpen&&document.activeElement===chatEl);
+  await b.keyboard.type('bhmp hello <b>lords</b>',{delay:15});await sleep(100);
+  const hk=await b.evaluate(()=>({bm:buildMenuOpen,placing,muted:AU.S.muted,state,showHelp,val:chatEl.value}));
+  ok(op&&!hk.bm&&!hk.placing&&hk.muted===mute0&&hk.state==='play'&&!hk.showHelp&&hk.val==='bhmp hello <b>lords</b>','chat: Enter opens the chat box; typing B/H/M/P does not trigger build menu, help, mute or pause '+JSON.stringify(hk));
+  await b.keyboard.press('Enter');let got=null;for(let i=0;i<20&&!got;i++){await sleep(150);got=await a.evaluate(()=>chatLog.find(m=>!m.sys&&m.text==='bhmp hello <b>lords</b>'));}
+  const da=await a.evaluate(()=>{const out=[];const o=ctx.fillText;ctx.fillText=function(t){out.push(String(t));return o.apply(this,arguments);};try{drawChat();}finally{ctx.fillText=o;}return out.join('|');});
+  ok(got&&got.slot===2&&/lords/.test(da)&&await b.evaluate(()=>!chatOpen),'chat: Enter sends; Alice gets the message with sender + kingdom color and the overlay renders it as text '+JSON.stringify(got&&{name:got.name,slot:got.slot}));
+  await b.keyboard.press('Enter');await b.keyboard.type('draft');await b.keyboard.press('Escape');await sleep(100);
+  const cl=await b.evaluate(()=>({open:chatOpen,state,focus:document.activeElement===chatEl}));
+  ok(!cl.open&&cl.state==='play'&&!cl.focus,'chat: Esc closes the chat box without pausing the game');
+  const n0=await a.evaluate(()=>chatLog.length);await sleep(300);ok(await a.evaluate(n0=>chatLog.length===n0,n0),'chat: Esc does not send the draft');
+  await b.keyboard.press('b');await sleep(80);ok(await b.evaluate(()=>buildMenuOpen),'hotkeys work again after closing chat');await b.keyboard.press('Escape');await b.evaluate(()=>{buildMenuOpen=false;});}
  // ---- net robustness (v1.2.2): a busy page applies only the newest snapshot, F3 overlay, lag banner, reconnect + resync
  await b.bringToFront();await sleep(200);
  {const before=await b.evaluate(()=>({r:NS.recv}));await b.evaluate(()=>{const t=performance.now();while(performance.now()-t<1500){}});await sleep(400);

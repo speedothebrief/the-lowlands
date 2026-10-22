@@ -54,11 +54,23 @@ function drawTip(){if(!tip)return;const lines=[];if(tip.c)lines.push('Cost: '+co
  let x=clamp(mouse.x+12,4,W-w-4),y=mouse.y-h-10;if(y<40)y=mouse.y+20;ctx.fillStyle='rgba(20,14,8,.95)';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#a08040';ctx.strokeRect(x+.5,y+.5,w,h);
  text(tip.t,x+8,y+16,'#ffe7a8','bold 12px Georgia, serif');lines.forEach((l,i)=>{let col='#ddd';if(i===0&&tip.c)col=affordN(tip.c,1)?'#cfe8b0':'#ff9a8a';text(l,x+8,y+32+i*16,col,'12px Georgia, serif');});}
 function smallBtn(x,y,w,h,label,on,tipd,active){const hov=btn(x,y,w,h,on,{tip:tipd});ctx.fillStyle=active?'#6a7a3a':hov?'#5a4630':'#3a2c1c';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#7a6040';ctx.strokeRect(x+.5,y+.5,w-1,h-1);text(label,x+w/2,y+h/2+4,'#f0e0b0','12px Georgia, serif','center');}
+function demolishBtn(x,y,w){smallBtn(x,y,w,22,'Demolish (Del)',()=>demolishSel(),{t:'Demolish [Del / Backspace]',d:'Tears down the selected finished building(s) or walls. No refund. The Keep cannot be demolished.'});}
+// Market trade panel: sell 100 food/wood/stone for 25 gold, buy 100 for 400 gold (Shift+click = x10). Fixed rates.
+function drawTrade(m,x,y){const P=players[me];text('Trade (Shift+click ×10):',x,y-3,'#e8c870','bold 11px Georgia, serif');const lots=keys.has('shift')?10:1,a=100*lots;
+ TRADE_RES.forEach((r,i)=>{const bx=x+i*132;
+  const cs=P.res[r]>=a,cb=P.res.gold>=a*TRADE_RATE;
+  tradeBtn(bx,y+1,128,`Sell ${a} ${r} → ${a/TRADE_RATE}g`,cs,e=>tradeCmd(m,r,'sell',e&&e.shiftKey?10:1),{t:`Sell ${r}`,d:`${TRADE_RATE} ${r} = 1 gold. Sell 100 ${r} for 25 gold (Shift+click: 1000 for 250).`});
+  tradeBtn(bx,y+26,128,`Buy ${a} ${r} (${a*TRADE_RATE}g)`,cb,e=>tradeCmd(m,r,'buy',e&&e.shiftKey?10:1),{t:`Buy ${r}`,d:`1 ${r} costs ${TRADE_RATE} gold. Buy 100 ${r} for 400 gold (Shift+click: 1000 for 4000).`});});}
+function tradeBtn(x,y,w,label,can,on,tipd){const hov=btn(x,y,w,22,can?on:()=>{AU.play('err');},{tip:tipd});ctx.fillStyle=!can?'#241b12':hov?'#5a4630':'#3a2c1c';ctx.fillRect(x,y,w,22);ctx.strokeStyle=can?'#7a6040':'#4a3a28';ctx.strokeRect(x+.5,y+.5,w-1,21);text(label,x+w/2,y+15,can?'#f0e0b0':'#7a6a50','11px Georgia, serif','center');}
 function drawSelInfo(x,y,w){const P=players[me];
  if(!sel.length){text('Nothing selected',x,y+16,'#cdbb90','bold 14px Georgia, serif');
   const lines=['Left-click / drag to select units. Right-click to command.','Peasants: right-click trees, rocks, gold or farms to work.','Build from the menu at left. H = help, P = pause.'];lines.forEach((l,i)=>text(l,x,y+40+i*18,'#bba','12px Georgia, serif'));
   const idle=units.filter(u=>u.owner===me&&u.type==='peasant'&&u.state==='idle').length;smallBtn(x,y+96,150,24,`Idle peasants: ${idle} (.)`,selectIdle,{t:'Select next idle peasant (.)'});return;}
  const e=sel[0];
+ if(sel.length>1&&sel.every(b=>b.kind==='bld')){const n={};for(const b of sel)n[BLD[b.type].name]=(n[BLD[b.type].name]||0)+1;
+  text(`${sel.length} buildings selected`,x,y+16,'#ffe7a8','bold 15px Georgia, serif');text(Object.keys(n).map(k=>n[k]+'× '+k).join(', ').slice(0,120),x,y+36,'#ddd','12px Georgia, serif');
+  text('Shift+click adds/removes buildings; double-click selects all of that type on screen.',x,y+54,'#aa9','12px Georgia, serif');
+  demolishBtn(x,y+70,190);return;}
  if(sel.length===1||e.kind==='bld'){
   if(e.kind==='unit'){const D=UNITS[e.type];ctx.fillStyle='rgba(0,0,0,.3)';ctx.fillRect(x,y,64,80);drawIconUnit(e.type,x+32,y+62,2.2,e.owner);
    text(D.name+(e.owner!==me?` — ${players[e.owner].short}`:''),x+76,y+16,'#ffe7a8','bold 15px Georgia, serif');
@@ -72,9 +84,11 @@ function drawSelInfo(x,y,w){const P=players[me];
    text(D.desc,x+76,y+54,'#aa9','12px Georgia, serif');
    if(e.owner===me&&!e.built){text(`Builders: ${e.bc||0}${e.bc?'':' — construction paused! Right-click with peasants to build.'}`,x+76,y+76,e.bc?'#bfe6ff':'#ffb080','12px Georgia, serif');
     smallBtn(x+76,y+86,190,24,'Cancel construction (Del)',()=>issue({t:'cancelbld',bid:e.id}),{t:'Cancel construction',d:'Removes the site and refunds the full cost.'});return;}
+   if(e.owner===me&&e.built&&e.type!=='keep')demolishBtn(x+w-120,y,120);
+   if(e.owner===me&&e.built&&e.type==='market')drawTrade(e,x+76,y+72);
    if(e.owner===me&&e.built&&e.hp<e.maxhp-.5){const rc=repairCost(e,e.maxhp-e.hp);const cs=Object.keys(rc).map(r=>Math.ceil(rc[r])+' '+r).join(', ')||'free';
     text(e.bc?`✚ Repairing — ${e.bc} peasant${e.bc>1?'s':''}`:'Damaged — repair: right-click with peasants or N',x+76+ctx.measureText(`HP ${Math.ceil(e.hp)}/${e.maxhp}`).width+90,y+36,e.bc?'#9cf27a':'#ffb080','12px Georgia, serif');
-    const gx0=x+76+(D.train?D.train.length*50+200:0);const rx2=D.gar?(e.type==='keep'?gx0:gx0+106):gx0,ry2=D.gar&&e.type==='keep'?y+114:y+86;
+    const gx0=x+76+(D.train?D.train.length*50+200:e.type==='market'?400:0);const rx2=D.gar?(e.type==='keep'?gx0:gx0+106):gx0,ry2=D.gar&&e.type==='keep'?y+114:y+86;
     smallBtn(rx2,ry2,110,22,'Repair (N)',()=>repairSel(),{t:'Repair [N]',d:`Sends the nearest idle peasants (up to 3) to repair. Full repair costs ${cs}.`});}
    if(e.owner===me&&D.gar&&e.built){const gi=garInfo(e);const gx=x+76+(D.train?D.train.length*50+200:0);
     text(`Garrison ${gi.n}/${D.gar}`+(gi.n?` (+${gi.n+gi.a} arrows/volley)`:''),gx,y+76,'#d8c8ff','12px Georgia, serif');
@@ -111,11 +125,18 @@ function drawHelp(){uiBtns=[];tip=null;const [x,y]=overlayPanel(Math.min(W-40,90
  ['Command','Right-click ground to move, an enemy to attack. X then left-click = attack-move. C = stop. Ctrl/Shift+1-9 save a group, 1-9 recall it. "." = next idle peasant.'],
  ['Economy','Peasants gather wood (trees), stone (grey rocks), gold (glittering rocks): right-click them. Goods are carried to the Keep or nearest Lumber Camp / Quarry / Gold Mine. Farms give food: right-click a farm with peasants (2 per farm). Markets yield gold.'],
  ['Build','B opens the build menu, then a letter: H House, F Farm, L Lumber Camp, Q Quarry, G Gold Mine, M Market, B Barracks, S Stable, W Workshop, A Wall, E Gate, T Tower, O Fortress (Shift+letter = place several, Esc cancels). Or click a BUILD button. Place anywhere on open, explored ground that is not occupied by buildings, resources, water or enemy units (red ghost = invalid); there is no territory limit, expansion only needs peasants to walk there and build. Selected peasants (or the nearest idle one) walk over and build; more builders = faster (diminishing). Right-click a site or damaged building with peasants to build/repair, or select the building and press N (Repair: nearest idle peasants; costs wood/stone in proportion to damage). Del cancels a site (full refund; 50% back if destroyed unfinished).'],
+ ['Market','Select a finished Market to trade at fixed rates, gold only: sell 100 food, wood or stone for 25 gold (4:1), or buy 100 of them for 400 gold (1 for 4). Shift+click trades ×10. Greyed buttons mean you can\'t afford it. A Market also earns +0.5 gold/sec.'],
+ ['Demolish','Del or Backspace (or the Demolish button) tears down the selected finished buildings or walls you own, with no refund. On an unfinished site it cancels instead (full refund). Shift+click selects several buildings; double-click selects every one of that type on screen. The Keep cannot be demolished.'],
+ ['Gates','A Gate can be placed straight onto your own wall (green ghost): it replaces that wall segment (the wall\'s stone is not refunded). Gates can\'t go over enemy walls or other buildings.'],
  ['Garrison','Right-click your Keep (40), Fortress (30) or Tower (6) with peasants/spearmen/archers, or press G. Inside they are safe and shoot: every garrisoned unit adds 1 arrow per volley (archers 2). Keep: 4 arrows / 0.8 s, Fortress: 8 arrows / 0.8 s out to 11.5 tiles. U unloads (to the rally point). Town Bell: B with the Keep selected (or Shift+B anywhere) calls peasants first, then infantry inside; ring again to release — peasants resume work. Units flee out if the building falls.'],
  ['Army','Keep trains peasants; Barracks: spearmen & archers; Stable: knights; Workshop: catapults. Q/E/R/T train from the selected building (when the build menu is closed). Right-click with a building selected sets its rally point. Houses raise population.'],
  ['Counters','Spearmen beat knights. Knights crush archers & catapults. Archers shred infantry. Catapults demolish walls and buildings. Towers, Keeps and Fortresses shoot arrows.'],
  ['Rivals','Ravenmoor is aggressive and attacks early. Eldmark builds a big economy and strikes late with large armies. Stonehold walls itself in with towers. Rivals also fight each other.'],
+ ['Chat','Multiplayer only (lobby and matches): Enter opens the chat box, Enter sends to everyone, Esc cancels. While typing, game hotkeys are off. Mouse wheel over the open chat (or PgUp/PgDn) scrolls the history; recent messages fade after 10 s. There are no teams or alliances, so all chat goes to every player.'],
  ['Other','P / Esc pauses (restart from the pause menu). F toggles fog of war. H toggles this help. F3 shows the network status in multiplayer (ping, last server update, reconnects). M mutes sound; volume sliders are under the Sound button (top bar) and in the pause menu.']];
- text('How to Play',W/2,y+40,'#ffe7a8','bold 26px Georgia, serif','center');let yy=y+72;const mw=Math.min(W-40,900)-170;
- ctx.font='13px Georgia, serif';for(const [h,t] of L){text(h,x+24,yy,'#e8c870','bold 13px Georgia, serif');const words=t.split(' ');let line='';ctx.font='13px Georgia, serif';for(const w2 of words){if(ctx.measureText(line+w2).width>mw){text(line,x+130,yy,'#ddd');yy+=17;line='';}line+=w2+' ';}text(line,x+130,yy,'#ddd');yy+=24;}
+ text('How to Play',W/2,y+40,'#ffe7a8','bold 26px Georgia, serif','center');const PHh=Math.min(H-40,720),mw=Math.min(W-40,900)-170;
+ // wrap every row, then pick the largest font (13 -> 10 px) that fits above the Continue button
+ const wrap=(t,f)=>{ctx.font=f;const out=[];let line='';for(const w2 of t.split(' ')){if(line&&ctx.measureText(line+w2).width>mw){out.push(line);line='';}line+=w2+' ';}out.push(line);return out;};
+ let fs=13,rows;for(;fs>=10;fs--){rows=L.map(([h,t])=>[h,wrap(t,fs+'px Georgia, serif')]);const tot=rows.reduce((a,r)=>a+r[1].length*(fs+4)+7,0);if(tot<=PHh-130)break;}fs=Math.max(fs,10);
+ let yy=y+72;for(const [h,ls] of rows){text(h,x+24,yy,'#e8c870','bold '+fs+'px Georgia, serif');ls.forEach((l,i)=>text(l,x+130,yy+i*(fs+4),'#ddd',fs+'px Georgia, serif'));yy+=(ls.length-1)*(fs+4)+fs+11;}
  bigBtn(W/2-100,Math.min(yy+4,y+Math.min(H-40,720)-50),200,'Continue',()=>{showHelp=false;},true);}

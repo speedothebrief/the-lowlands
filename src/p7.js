@@ -36,8 +36,17 @@ function selSound(){const e=sel[0];if(!e)return;if(e.kind==='bld')AU.play('sel_b
 function clickSelect(sx,sy,add){const e=pickAt(sx,sy);const now=performance.now();
  if(!e){if(!add)sel=[];return;}const prevSel=sel.slice();setTimeout(()=>{if(sel.length&&(sel.length!==prevSel.length||sel.some((x,i)=>x!==prevSel[i])))selSound();},0);
  if(e.kind==='unit'&&e.owner===me&&now-lastClick.t<350&&lastClick.type===e.type){sel=units.filter(u=>u.owner===me&&!u.inG&&u.type===e.type&&onScreen(u.x,u.y,0));lastClick.t=0;return;}
- lastClick={t:now,type:e.kind==='unit'?e.type:null};
+ lastClick={t:now,type:e.kind==='unit'?e.type:e.owner===me?'b:'+e.type:null};
+ if(e.kind==='bld'&&e.owner===me&&now-lastClick.t<350&&lastClick.type==='b:'+e.type){sel=blds.filter(b=>!b.dead&&b.owner===me&&b.type===e.type&&onScreen(b.x,b.y,0));lastClick.t=0;return;}
+ if(add&&e.kind==='bld'&&e.owner===me&&sel.length&&sel.every(x=>x.kind==='bld'&&x.owner===me)){lastClick={t:now,type:'b:'+e.type};const i=sel.indexOf(e);if(i>=0)sel.splice(i,1);else sel.push(e);return;}
  if(add&&e.kind==='unit'&&e.owner===me){sel=sel.filter(x=>x.kind==='unit');const i=sel.indexOf(e);if(i>=0)sel.splice(i,1);else sel.push(e);}else sel=[e];}
+// Delete / Backspace / panel button: unfinished sites are cancelled (full refund), finished own buildings and walls are demolished
+// (no refund). The Keep can never be demolished (it is your only one; losing it means defeat).
+function demolishSel(){const bs=sel.filter(b=>b.kind==='bld'&&!b.dead&&b.owner===me);if(!bs.length)return;const rest=bs.filter(b=>b.type!=='keep');
+ if(!rest.length){msg('The Keep cannot be demolished.','#ff9a8a',me);AU.play('err');return;}
+ if(rest.length===1&&!rest[0].built)issue({t:'cancelbld',bid:rest[0].id});else issue({t:'demolish',bids:rest.map(b=>b.id)});
+ sel=sel.filter(x=>!rest.includes(x));AU.ui('click');}
+function tradeCmd(m,res,dir,lots){const amt=100*lots;issue({t:'trade',bid:m.id,res,dir,amt});}
 function tryPlace(spots){const D=BLD[placing];const ok=[];let why=null;for(const s of spots){const w=canPlace(placing,s[0],s[1],me,null);if(w){why=w;continue;}ok.push(s);}
  if(!ok.length){msg('Cannot build here: '+(why||'invalid'),'#ff9a8a',me);AU.play('err');return false;}
  if(!afford(players[me],D.cost)){msg('Not enough resources for '+D.name+'.','#ff9a8a',me);AU.play('err');return false;}
@@ -56,7 +65,7 @@ cv.addEventListener('mousemove',e=>{mouse.x=e.clientX;mouse.y=e.clientY;mouse.in
  if(mouse.mmDrag){const w=mmToWorld(mouse.x,mouse.y);centerOn(clamp(w.x,0,MAP),clamp(w.y,0,MAP));}
  if(mouse.rdown||mouse.mdown){if(Math.hypot(mouse.x-mouse.rsx,mouse.y-mouse.rsy)>6)mouse.rdrag=true;if(mouse.rdrag){cam.x=mouse.camSX-(mouse.x-mouse.rsx)/cam.z;cam.y=mouse.camSY-(mouse.y-mouse.rsy)/cam.z;clampCam();}}});
 cv.addEventListener('mousedown',e=>{mouse.x=e.clientX;mouse.y=e.clientY;mouse.inside=true;
- if(e.button===0){const b=hitBtn();if(b){if(b.slider)activeSlider=b;else AU.ui('click');b.on();return;}if(overlayUp())return;if(!inGame())return;
+ if(e.button===0){const b=hitBtn();if(b){if(b.slider)activeSlider=b;else AU.ui('click');b.on(e);return;}if(overlayUp())return;if(!inGame())return;
   if(inRect(mouse.x,mouse.y,mmRect())){mouse.mmDrag=true;const w=mmToWorld(mouse.x,mouse.y);centerOn(clamp(w.x,0,MAP),clamp(w.y,0,MAP));return;}
   if(mouseOverUI())return;
   if(placing){const D=BLD[placing];if(D.wall){const w=screenToWorld(mouse.x,mouse.y);wallStart=[Math.floor(w.x),Math.floor(w.y)];}else{if(tryPlace([placeSpot()])&&!e.shiftKey&&!placeSticky)placing=null;}return;}
@@ -72,11 +81,12 @@ window.addEventListener('mouseup',e=>{
   if(mouse.ldown){mouse.ldown=false;if(mouse.dragging)boxSelect(mouse.sx,mouse.sy,mouse.x,mouse.y,e.shiftKey);else clickSelect(mouse.x,mouse.y,e.shiftKey);mouse.dragging=false;}}
  else if(e.button===2){if(mouse.rdown&&!mouse.rdrag&&inGame()&&!overlayUp()&&!mouseOverUI())cmdRight(mouse.x,mouse.y,false);mouse.rdown=false;mouse.rdrag=false;}
  else if(e.button===1){mouse.mdown=false;mouse.rdrag=false;}});
-cv.addEventListener('wheel',e=>{e.preventDefault();if(!inGame())return;zoomAt(mouse.x,mouse.y,e.deltaY<0?1.12:1/1.12);},{passive:false});
+cv.addEventListener('wheel',e=>{e.preventDefault();if(chatWheel(e.deltaY))return;if(!inGame())return;zoomAt(mouse.x,mouse.y,e.deltaY<0?1.12:1/1.12);},{passive:false});
 function zoomAt(sx,sy,f){const px=(sx-W/2)/cam.z+cam.x,py=(sy-H/2)/cam.z+cam.y;cam.z=clamp(cam.z*f,0.45,2.2);cam.x=px-(sx-W/2)/cam.z;cam.y=py-(sy-H/2)/cam.z;clampCam();}
 function clampCam(){cam.x=clamp(cam.x,-MAP*32,MAP*32);cam.y=clamp(cam.y,0,MAP*32);}
 window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'))return;
  if(k==='f3'){e.preventDefault();showNet=!showNet;return;}
+ if(k==='enter'&&!e.repeat&&!e.altKey&&!e.ctrlKey&&!e.metaKey){if(openChat()){e.preventDefault();keys.clear();}return;}   // chat (multiplayer only; a no-op in solo)
  if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k))e.preventDefault();
  keys.add(k);if(k==='m'&&!e.repeat&&!(buildMenuOpen&&inGame())){AU.init();AU.toggleMute();msg(AU.S.muted?'Sound muted (M)':'Sound on (M)','#cdbb90',me);}if(!inGame())return;
  if(buildMenuOpen&&state==='play'&&k.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey){keys.delete(k);const ty=BUILD_KEY_OF[k];buildMenuOpen=false;
@@ -93,7 +103,7 @@ window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(e.target&&(
  else if(k==='g')garrisonSel();
  else if(k==='u')unloadSel();
  else if(k==='n')repairSel();
- else if(k==='delete'||k==='backspace'){const b=sel[0];if(b&&b.kind==='bld'&&b.owner===me&&!b.built)issue({t:'cancelbld',bid:b.id});}
+ else if(k==='delete'||k==='backspace'){e.preventDefault();demolishSel();}
  else if(k===' '){const P=players[me];const pg=pings.filter(p=>p.o===me).pop();if(pg&&time-pg.t<20)centerOn(pg.x,pg.y);else if(P.keep&&!P.keep.dead)centerOn(P.keep.x,P.keep.y);else{const k2=blds.find(b=>b.owner===me&&b.type==='keep');if(k2)centerOn(k2.x,k2.y);}}
  else if(k==='.')selectIdle();
  else if('qert'.includes(k)&&k.length===1){const b=sel[0];if(b&&b.kind==='bld'&&b.owner===me&&b.built&&BLD[b.type].train){const ut=BLD[b.type].train['qert'.indexOf(k)];if(ut)trainCmd(b,ut);}}
@@ -144,6 +154,7 @@ function netConnect(){if(!/^https?:$/.test(location.protocol))return;try{ws=new 
  ws.onmessage=ev=>{const now=performance.now();NS.lastMsgT=now;NS.rxB+=ev.data.length;let m;try{m=JSON.parse(ev.data);}catch(e){return;}
   if(m.t==='snap'){wsConn.send('{"t":"ack","n":'+(m.n|0)+'}');NS.seq=m.n|0;NS.srvSkipped=m.sk|0;if(NS.lastSnapT)NS.snapIv=NS.snapIv*.85+Math.min(1000,now-NS.lastSnapT)*.15;NS.lastSnapT=now;NS.rxN++;m.__rt=now;if(netKind==='server'&&mode==='net')queueSnap(m);return;}
   if(m.t==='pong'){NS.rtt=Math.round(now-m.c);return;}
+  if(m.t==='chat'||m.t==='chathist'){try{onChat(m);}catch(e){netErr('chat',e);}return;}
   if(m.t==='version'){onSrvVersion(m);return;}if(m.t==='welcome')srvCid=m.cid;if(m.t==='lobby')srvLobby=m;
   if(netKind==='server'){try{handleNet(m);}catch(e){netErr(m.t,e);}}};
  ws.onclose=()=>{if(ws&&!ws.__open)wsFails++;const srv=netKind==='server';const was=srv&&mode==='net';netAvailable=false;ws=null;srvLobby=null;pendSnap=null;
@@ -240,7 +251,7 @@ function drawMenu(){uiBtns=[];tip=null;const [x,y]=overlayPanel(600,560);
   text('v'+APP_VERSION+(srvVer?`  ·  server v${srvVer}`:''),x+590,y+16,'#887','11px Georgia, serif','right');
   if(upd)text(srvUpd.selfUpdate?`Server update v${srvUpd.latest}: ${srvUpd.update==='failed'?'failed — see host window':'installs when no game is running'}`:`Server update v${srvUpd.latest} available — rebuild/pull the server`,W/2,y+557,'#ffd27a','10px Georgia, serif','center');
   let u=null;try{u=sessionStorage.getItem('kom_updated');}catch(e){}if(u&&u===srvVer)text('✓ updated to v'+u,x+10,y+16,'#9d9','11px Georgia, serif');}
- text('H: help   B: build menu   P/Esc: pause   M: mute   WASD/arrows/edges/right-drag: pan   Wheel: zoom',W/2,y+545,'#998','11px Georgia, serif','center');
+ text('H: help   B: build menu   P/Esc: pause   M: mute   WASD/arrows: pan   Wheel: zoom   Enter: chat (LAN)',W/2,y+545,'#998','11px Georgia, serif','center');
 }
 function drawLobby(){uiBtns=[];tip=null;const [x,y]=overlayPanel(640,560);
  text('LAN Lobby',W/2,y+48,'#ffe7a8','bold 30px Georgia, serif','center');
@@ -289,8 +300,8 @@ function frame(now){const rdt=Math.max(0,(now-last)/1000),dt=Math.min(.1,rdt);la
  if(mode==='net'){flushSnap();if(inGame())netFrame(Math.min(rdt,1));}
  if(inGame()){vis=visMap[me]||vis;checkOutcome();pings=pings.filter(p=>time-p.t<20);if(endShown&&(state==='won'||state==='lost')){}}
  updateCamera(dt);
- if(state==='menu'||state==='lobby'){cam.x+=Math.sin(now/9000)*0.3;renderWorld(true);if(state==='menu'){if(showHelp)drawHelp();else drawMenu();}else drawLobby();AU.panel(16,H-144);drawTip();}
- else{const r0=performance.now();renderWorld(false);renderMs=renderMs*.9+(performance.now()-r0)*.1;drawUI();drawNetStatus();if(showHelp)drawHelp();else if(state==='paused')drawPause();else if((state==='won'||state==='lost')&&!endShown)drawEnd();}
+ if(state==='menu'||state==='lobby'){cam.x+=Math.sin(now/9000)*0.3;renderWorld(true);if(state==='menu'){if(showHelp)drawHelp();else drawMenu();}else{drawLobby();drawChat();}AU.panel(16,H-144);drawTip();}
+ else{const r0=performance.now();renderWorld(false);renderMs=renderMs*.9+(performance.now()-r0)*.1;drawUI();drawChat();drawNetStatus();if(showHelp)drawHelp();else if(state==='paused')drawPause();else if((state==='won'||state==='lost')&&!endShown)drawEnd();}
  }catch(err){console.error(err);window.__lastError=String(err&&err.stack||err);}
  requestAnimationFrame(frame);}
 previewMap();netConnect();requestAnimationFrame(frame);

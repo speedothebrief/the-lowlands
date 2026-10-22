@@ -150,7 +150,19 @@ function applyCmd(pid,c){const P=players[pid];if(!P||P.surrendered||!c)return;
  case 'repair':{const b=byId.get(c.bid);const peas=mine.filter(u=>u.type==='peasant');if(!b||b.owner!==pid||!needsWork(b)){moveGroup(mine,+c.x,+c.y,false);break;}for(const u of peas)assignBuild(u,b);moveGroup(mine.filter(u=>u.type!=='peasant'),b.x,b.y+b.h/2+2,false);break;}
  case 'repairauto':{const b=byId.get(c.bid);if(!b||b.owner!==pid)break;if(!needsWork(b)){errMsg('That building is not damaged.','#ff9a8a',pid);break;}if(!repairAuto(pid,b)&&!buildersOf(b))errMsg('No peasant available to repair.','#ff9a8a',pid);break;}
  case 'cancelbld':{if(myB&&!myB.built){refund(P,BLD[myB.type].cost);myB.cancelled=true;killEnt(myB,-1);}break;}
+ case 'demolish':{const ids=Array.isArray(c.bids)?c.bids.slice(0,400):c.bid!=null?[c.bid]:[];let n=0,keep=false;
+  for(const id of ids){const b=byId.get(id);if(!b||b.dead||b.kind!=='bld'||b.owner!==pid)continue;
+   if(b.type==='keep'){keep=true;continue;}   // your only Keep: demolishing it would mean surrender, so it is not allowed
+   if(!b.built){refund(P,BLD[b.type].cost);b.cancelled=true;}else b.demolished=true;killEnt(b,-1);n++;}
+  if(keep)errMsg('The Keep cannot be demolished.','#ff9a8a',pid);break;}
+ case 'trade':{const r=c.res,amt=Math.floor(+c.amt);if(!TRADE_RES.includes(r)||!(amt>0)||amt>100000||amt%TRADE_RATE)break;
+  if(!myB||myB.type!=='market'||!myB.built){errMsg('Trading needs a finished Market.','#ff9a8a',pid);break;}
+  if(c.dir==='sell'){if(P.res[r]<amt){errMsg(`Not enough ${r} to sell.`,'#ff9a8a',pid);break;}P.res[r]-=amt;P.res.gold+=amt/TRADE_RATE;sfx('trade',myB.x,myB.y,pid);}
+  else if(c.dir==='buy'){const g=amt*TRADE_RATE;if(P.res.gold<g){errMsg('Not enough gold.','#ff9a8a',pid);break;}P.res.gold-=g;P.res[r]+=amt;sfx('trade',myB.x,myB.y,pid);}
+  break;}
  }}
+// Market: fixed gold-only rates. Sell 4 food/wood/stone -> 1 gold; buy 1 food/wood/stone for 4 gold.
+const TRADE_RATE=4,TRADE_RES=['food','wood','stone'];
 // ===== game setup / sim =====
 let simAcc=0,visT=0,mmT=0,winT=0;
 function setupGame(gseed,slots,diff,fog,size){
