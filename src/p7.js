@@ -40,10 +40,11 @@ function clickSelect(sx,sy,add){const e=pickAt(sx,sy);const now=performance.now(
  if(e.kind==='bld'&&e.owner===me&&now-lastClick.t<350&&lastClick.type==='b:'+e.type){sel=blds.filter(b=>!b.dead&&b.owner===me&&b.type===e.type&&onScreen(b.x,b.y,0));lastClick.t=0;return;}
  if(add&&e.kind==='bld'&&e.owner===me&&sel.length&&sel.every(x=>x.kind==='bld'&&x.owner===me)){lastClick={t:now,type:'b:'+e.type};const i=sel.indexOf(e);if(i>=0)sel.splice(i,1);else sel.push(e);return;}
  if(add&&e.kind==='unit'&&e.owner===me){sel=sel.filter(x=>x.kind==='unit');const i=sel.indexOf(e);if(i>=0)sel.splice(i,1);else sel.push(e);}else sel=[e];}
-// Delete / Backspace / panel button: unfinished sites are cancelled (full refund), finished own buildings and walls are demolished
+// Delete / Backspace: selected own units are killed (no refund); unfinished sites are cancelled (full refund), finished own buildings and walls are demolished
 // (no refund). The Keep can never be demolished (it is your only one; losing it means defeat).
-function demolishSel(){const bs=sel.filter(b=>b.kind==='bld'&&!b.dead&&b.owner===me);if(!bs.length)return;const rest=bs.filter(b=>b.type!=='keep');
- if(!rest.length){msg('The Keep cannot be demolished.','#ff9a8a',me);AU.play('err');return;}
+function demolishSel(){const us=sel.filter(u=>u.kind==='unit'&&!u.dead&&u.owner===me);if(us.length){issue({t:'kill',ids:us.map(u=>u.id)});sel=sel.filter(x=>!us.includes(x));}
+ const bs=sel.filter(b=>b.kind==='bld'&&!b.dead&&b.owner===me);if(!bs.length)return;const rest=bs.filter(b=>b.type!=='keep');
+ if(!rest.length){if(!us.length){msg('The Keep cannot be demolished.','#ff9a8a',me);AU.play('err');}return;}
  if(rest.length===1&&!rest[0].built)issue({t:'cancelbld',bid:rest[0].id});else issue({t:'demolish',bids:rest.map(b=>b.id)});
  sel=sel.filter(x=>!rest.includes(x));AU.ui('click');}
 function tradeCmd(m,res,dir,lots){const amt=100*lots;issue({t:'trade',bid:m.id,res,dir,amt});}

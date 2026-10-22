@@ -33,7 +33,7 @@ function client(name){return new Promise(res=>{const ws=new WebSocket(`ws://127.
   ok(got1.some(m=>m.t==='chat'&&m.text==='room one only')&&!got2.some(m=>m.t==='chat'&&/room one/.test(m.text)),'chat: messages stay inside their room');r1.close();r2.close();}
  {// market / demolish / gates through a real room (server-authoritative command validation), in-process
   const vm=require('vm'),fs=require('fs'),path=require('path');const html=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
-  const sb=vm.createContext({console});vm.runInContext(html.slice(html.indexOf('/*SIM-BEGIN*/'),html.indexOf('/*SIM-END*/'))+';globalThis.API={setupGame,sim,applyCmd,makeSnap,mapData,playersMeta,makeAI,makeHuman,surrender,STEP,KINGDOMS,spawnBld,canPlace,get:()=>({players,time,gameOver,seed,blds})};',sb);
+  const sb=vm.createContext({console});vm.runInContext(html.slice(html.indexOf('/*SIM-BEGIN*/'),html.indexOf('/*SIM-END*/'))+';globalThis.API={setupGame,sim,applyCmd,makeSnap,mapData,playersMeta,makeAI,makeHuman,surrender,STEP,KINGDOMS,spawnBld,canPlace,get:()=>({players,time,gameOver,seed,blds,units})};',sb);
   const API=sb.API,r=createRoomT(API);const x=r.join(()=>{}),y=r.join(()=>{});x.msg({t:'hello',name:'Xena'});y.msg({t:'hello',name:'Yuri'});
   x.msg({t:'slot',slot:0});y.msg({t:'slot',slot:1});x.msg({t:'cfg',fog:false});x.msg({t:'start'});await sleep(100);
   const g=API.get(),P0=g.players[0],K=P0.keep;ok(r.inGame&&P0.isHuman&&g.players[1].isHuman,'in-process room game started with 2 humans');
@@ -44,6 +44,9 @@ function client(name){return new Promise(res=>{const ws=new WebSocket(`ws://127.
   x.msg({t:'cmd',c:{t:'trade',bid:M.id,res:'wood',dir:'sell',amt:1000}});await sleep(150);ok(P0.res.wood===0&&P0.res.gold>=250&&P0.res.gold<252,`server applies the owner's trade: sold 1000 wood for ${Math.floor(P0.res.gold)} gold (+ market income)`);const st0=P0.res.stone;
   x.msg({t:'cmd',c:{t:'trade',bid:M.id,res:'stone',dir:'buy',amt:100}});await sleep(150);ok(P0.res.gold>=250&&P0.res.stone===st0,'server refuses a buy the player cannot afford');
   x.msg({t:'cmd',c:{t:'demolish',bids:[K.id]}});x.msg({t:'cmd',c:{t:'demolish',bids:[M.id]}});await sleep(150);ok(!K.dead&&M.dead&&!P0.surrendered,'server: owner demolishes the Market; the Keep is protected');
+  {const U=API.get().units,p0=U.find(u=>u.owner===0&&u.type==='peasant'&&!u.dead),p1=U.find(u=>u.owner===1&&u.type==='peasant'&&!u.dead);
+   y.msg({t:'cmd',c:{t:'kill',ids:[p0.id]}});x.msg({t:'cmd',c:{t:'kill',ids:[p0.id,p1.id]}});await sleep(150);
+   ok(p0.dead&&!p1.dead,'server: kill only works on your own units (other player\'s request ignored)');}
   r.close();}
  B.send({t:'start'});await sleep(300);ok(!A.init,'non-host cannot start');
  A.send({t:'cfg',diff:'hard',fog:true});A.send({t:'start'});await sleep(1500);

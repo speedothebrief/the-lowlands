@@ -98,6 +98,20 @@ async function trackDrawn(pg,ms,order){return pg.evaluate(async(ms,order)=>{cons
   ok(fg===0,'fog layer matches the visibility map tile for tile');
   await p.screenshot({path:path.join(SHOTS,'ui-zoomed-out.png')});await p.evaluate(()=>{cam.z=1;clampCam();});}
  await p.evaluate(()=>{showHelp=true;});await sleep(150);await p.screenshot({path:path.join(SHOTS,'ui-help.png')});await p.evaluate(()=>{showHelp=false;});
+ // ---- map-edge rendering: buildings on every map edge are fully drawn (the fog border used to hide the upper-right/left band)
+ {const r=await p.evaluate(()=>{mapSize='small';fogOn=true;newGame();showHelp=false;for(const u of units)u.dead=true;const M=MAP,h=M>>1;
+   const spots=[['y=0 edge (upper right)',h,0],['x=MAP-1 edge (lower right)',M-1,h],['y=MAP-1 edge (lower left)',h,M-1],['x=0 edge (upper left)',0,h],['corner 0,0',0,0],['corner MAP-1,0',M-1,0],['corner 0,MAP-1',0,M-1],['corner MAP-1,MAP-1',M-1,M-1],['y=1 row',h+4,1],['x=1 column',1,h+4]];
+   const res=[];for(const [n,x,y] of spots){for(let yy=y-1;yy<=y+1;yy++)for(let xx=x-1;xx<=x+1;xx++)if(xx>=0&&yy>=0&&xx<M&&yy<M){tiles[yy*M+xx]=0;resT[yy*M+xx]=0;}
+    const b=spawnBld('tower',x,y,me,true);centerOn(b.x,b.y);cam.z=1;vis=updateVisFor(me);const s=worldToScreen(b.x,b.y);const bx=Math.round(s[0]-20),by=Math.round(s[1]-84),bw=40,bh=90;
+    renderWorld();const A=ctx.getImageData(bx,by,bw,bh).data;fogOn=false;renderWorld();const B=ctx.getImageData(bx,by,bw,bh).data;fogOn=true;
+    let diff=0,ink=0;for(let i=0;i<A.length;i+=4){if(Math.abs(A[i]-B[i])+Math.abs(A[i+1]-B[i+1])+Math.abs(A[i+2]-B[i+2])>30)diff++;if(Math.abs(B[i]-11)+Math.abs(B[i+1]-13)+Math.abs(B[i+2]-16)>40)ink++;}
+    res.push({n,diff,ink});}
+   // fog border still covers an UNEXPLORED edge, and follows the edge tile tile-for-tile
+   vis.fill(0);fogLayer();const d=fogCtx.getImageData(0,0,MAP+2,MAP+2).data;let opaque=0;for(let i=0;i<MAP+2;i++)if(d[i*4+3]===255&&d[((MAP+1)*(MAP+2)+i)*4+3]===255)opaque++;
+   vis=updateVisFor(me);return{res,opaque};});
+  const bad=r.res.filter(x=>x.diff>0||x.ink<300);
+  ok(bad.length===0,'buildings on every map edge and corner are drawn completely in a fully visible area (fog on = fog off) '+JSON.stringify(bad.length?bad:r.res.map(x=>x.n+':'+x.diff)));
+  ok(r.opaque===await p.evaluate(()=>MAP+2),'the fog border still covers unexplored map edges');}
  // ---- page served by a plain static web server (like a Synology web folder): multiplayer explained, no endless "connecting"
  {const http=require('http'),fs=require('fs');const st=http.createServer((q,r)=>{r.writeHead(200,{'Content-Type':'text/html'});r.end(fs.readFileSync(path.join(__dirname,'..','index.html')));}).listen(8134);
   const q=await page('static');q.on('console',()=>{});await q.goto('http://127.0.0.1:8134/');
@@ -140,7 +154,15 @@ async function trackDrawn(pg,ms,order){return pg.evaluate(async(ms,order)=>{cons
   const cl=await b.evaluate(()=>({open:chatOpen,state,focus:document.activeElement===chatEl}));
   ok(!cl.open&&cl.state==='play'&&!cl.focus,'chat: Esc closes the chat box without pausing the game');
   const n0=await a.evaluate(()=>chatLog.length);await sleep(300);ok(await a.evaluate(n0=>chatLog.length===n0,n0),'chat: Esc does not send the draft');
-  await b.keyboard.press('b');await sleep(80);ok(await b.evaluate(()=>buildMenuOpen),'hotkeys work again after closing chat');await b.keyboard.press('Escape');await b.evaluate(()=>{buildMenuOpen=false;});}
+  await b.keyboard.press('b');await sleep(80);ok(await b.evaluate(()=>buildMenuOpen),'hotkeys work again after closing chat');
+  // Delete: never while typing in chat; outside chat it kills the selected own units (server-authoritative)
+  await b.keyboard.press('Escape');await b.evaluate(()=>{buildMenuOpen=false;});const vid=await b.evaluate(()=>{const u=units.find(v=>v.owner===me&&v.type==='peasant'&&!v.dead&&!v.inG);sel=[u];return u.id;});
+  await b.evaluate(()=>{window.__cmds=[];const o=netSend;window.__ns=o;netSend=m=>{if(m&&m.t==='cmd')__cmds.push(m.c.t);return o(m);};});
+  await b.keyboard.press('Enter');await b.keyboard.type('oops');await b.keyboard.press('Backspace');await b.keyboard.press('Delete');await sleep(300);
+  const dk=await b.evaluate(id=>{const r={cmds:__cmds.slice(),sel:sel.length,val:chatEl.value,open:chatOpen};netSend=window.__ns;return r;},vid);
+  ok(dk.cmds.length===0&&dk.sel===1&&dk.val==='oop'&&dk.open,'Del/Backspace while typing in chat edit the text and kill nothing '+JSON.stringify(dk));
+  await b.keyboard.press('Escape');await b.evaluate(id=>{sel=units.filter(u=>u.id===id&&!u.dead);},vid);await b.keyboard.press('Delete');let gone=false;
+  for(let i=0;i<20&&!gone;i++){await sleep(150);gone=await a.evaluate(id=>!units.some(u=>u.id===id&&!u.dead),vid);}ok(gone,'Del kills the selected own peasant (seen in the other player\'s stream)');await b.keyboard.press('Escape');await b.evaluate(()=>{buildMenuOpen=false;});}
  // ---- net robustness (v1.2.2): a busy page applies only the newest snapshot, F3 overlay, lag banner, reconnect + resync
  await b.bringToFront();await sleep(200);
  {const before=await b.evaluate(()=>({r:NS.recv}));await b.evaluate(()=>{const t=performance.now();while(performance.now()-t<1500){}});await sleep(400);

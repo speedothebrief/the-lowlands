@@ -21,7 +21,7 @@ const UNITS={
  knight:{name:'Knight',hp:170,atk:13,range:0.8,cd:1.3,speed:2.7,sight:8,cost:{food:80,gold:75},time:20,pop:2,cls:'cav',val:155,desc:'Fast heavy cavalry. Crushes archers & siege.'},
  catapult:{name:'Catapult',hp:130,atk:34,range:8.5,minRange:2.2,cd:4.5,speed:0.9,sight:9,cost:{wood:150,stone:60,gold:60},time:28,pop:3,cls:'siege',val:270,proj:'stone',splash:1.1,desc:'Long-range siege. Devastating vs buildings.'},
 };
-const BONUS={peasant:{bld:0.3},spearman:{cav:3,bld:0.5},archer:{inf:1.25,cav:0.7,bld:0.15,siege:0.6},knight:{rng:1.6,siege:1.5,bld:0.5},catapult:{bld:3.5,inf:0.8,cav:0.6,rng:0.8,siege:1.5},tower:{cav:0.9,siege:0.8}};
+const BONUS={peasant:{bld:0.3},spearman:{cav:3,bld:0.5},archer:{inf:1.25,cav:0.7,bld:0.15,siege:0.6},knight:{rng:1.6,siege:1.5,bld:0.5},catapult:{bld:3.5,inf:0.8,cav:0.6,rng:0.8,siege:1.5},tower:{cav:0.9,siege:0.8},fortb:{bld:0.25}};
 const ALLRES=['food','wood','stone','gold'];
 const BLD={
  keep:{name:'Keep',w:3,h:3,hp:3000,cost:{},time:1,pop:10,drop:ALLRES,train:['peasant'],shoot:{range:7,atk:10,cd:0.8,n:4},gar:40,sight:10,val:600,desc:'Heart of your kingdom: fires 4 arrows every 0.8 s (+1 per garrisoned unit, +2 per archer). Lose it and you are defeated.'},
@@ -37,7 +37,7 @@ const BLD={
  wall:{name:'Wall',w:1,h:1,hp:700,cost:{stone:6},time:4,wall:true,sight:2,val:6,desc:'Blocks movement. Click-drag to build a line.'},
  gate:{name:'Gate',w:1,h:1,hp:900,cost:{stone:20,wood:10},time:6,wall:true,gate:true,sight:3,val:30,desc:'Wall segment your own units can pass.'},
  tower:{name:'Tower',w:1,h:1,hp:900,cost:{stone:100,wood:40},time:22,shoot:{range:7,atk:9,cd:1.4,n:1},gar:6,sight:9,val:140,desc:'Shoots arrows at enemies in range. Garrisons 6 infantry/peasants; each adds an arrow (archers 2).'},
- fortress:{name:'Fortress',w:3,h:3,hp:3600,cost:{stone:400,wood:200,gold:150},time:55,pop:10,drop:ALLRES,shoot:{range:11.5,atk:10,cd:0.8,n:8},gar:30,train:['spearman','archer','knight'],sight:12,val:750,desc:'Mighty stronghold: +10 pop, drop-off, trains troops, fires 8 arrows every 0.8 s (twice the Keep, +1 per garrisoned unit, +2 per archer) out to 11.5 tiles (catapult range + 3).'},
+ fortress:{name:'Fortress',w:3,h:3,hp:3600,cost:{stone:400,wood:200,gold:150},time:55,pop:10,drop:ALLRES,shoot:{range:11.5,atk:10,cd:0.8,n:8,bld:true},gar:30,train:['spearman','archer','knight'],sight:12,val:750,desc:'Mighty stronghold: +10 pop, drop-off, trains troops, fires 8 arrows every 0.8 s (twice the Keep, +1 per garrisoned unit, +2 per archer) out to 11.5 tiles (catapult range + 3). With no enemy units in range it shoots enemy buildings, towers first (25 damage/s).'},
 };
 const GAR_T=['peasant','spearman','archer'];const canGar=u=>GAR_T.includes(u.type);
 const BUILD_MENU=['house','farm','lumber','quarry','mine','market','barracks','stable','workshop','wall','gate','tower','fortress'];
@@ -199,6 +199,8 @@ function moveAlong(u,dt){
  if(u.pend){if(pathBudget>0&&pathExp>0){pathBudget--;u.pw=0;computePath(u);}else if((u.pw=(u.pw||0)+1)>18&&pathEmerg>0){pathEmerg--;u.pw=0;computePath(u);}return false;}
  if(!u.path||!u.path.length)return true;
  const p=u.path[0];const dx=p[0]-u.x,dy=p[1]-u.y,d=Math.hypot(dx,dy);const step=UNITS[u.type].speed*dt;
+ if(d>1e-4){u.hx=dx/d;u.hy=dy/d;}
+ if(u.yieldT>time&&!(u.ghostT>time)){u.moving=true;return false;}   // giving way to a unit coming the other way (see separation)
  if(Math.abs(dx-dy)>0.01)u.dir=(dx-dy)>0?1:-1;
  if(d<=step){u.x=p[0];u.y=p[1];u.path.shift();return !u.path.length;}
  u.x+=dx/d*step;u.y+=dy/d*step;u.moving=true;return false;}

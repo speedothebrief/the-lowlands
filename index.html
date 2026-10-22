@@ -4,7 +4,7 @@
 <style>html,body{margin:0;height:100%;overflow:hidden;background:#0b0d10}canvas{display:block;cursor:default}</style></head>
 <body><canvas id="c"></canvas>
 <script>
-const APP_VERSION='1.3.0';
+const APP_VERSION='1.3.1';
 /*SIM-BEGIN*/
 'use strict';
 // ===== The Lowlands — single-file RTS =====
@@ -29,7 +29,7 @@ const UNITS={
  knight:{name:'Knight',hp:170,atk:13,range:0.8,cd:1.3,speed:2.7,sight:8,cost:{food:80,gold:75},time:20,pop:2,cls:'cav',val:155,desc:'Fast heavy cavalry. Crushes archers & siege.'},
  catapult:{name:'Catapult',hp:130,atk:34,range:8.5,minRange:2.2,cd:4.5,speed:0.9,sight:9,cost:{wood:150,stone:60,gold:60},time:28,pop:3,cls:'siege',val:270,proj:'stone',splash:1.1,desc:'Long-range siege. Devastating vs buildings.'},
 };
-const BONUS={peasant:{bld:0.3},spearman:{cav:3,bld:0.5},archer:{inf:1.25,cav:0.7,bld:0.15,siege:0.6},knight:{rng:1.6,siege:1.5,bld:0.5},catapult:{bld:3.5,inf:0.8,cav:0.6,rng:0.8,siege:1.5},tower:{cav:0.9,siege:0.8}};
+const BONUS={peasant:{bld:0.3},spearman:{cav:3,bld:0.5},archer:{inf:1.25,cav:0.7,bld:0.15,siege:0.6},knight:{rng:1.6,siege:1.5,bld:0.5},catapult:{bld:3.5,inf:0.8,cav:0.6,rng:0.8,siege:1.5},tower:{cav:0.9,siege:0.8},fortb:{bld:0.25}};
 const ALLRES=['food','wood','stone','gold'];
 const BLD={
  keep:{name:'Keep',w:3,h:3,hp:3000,cost:{},time:1,pop:10,drop:ALLRES,train:['peasant'],shoot:{range:7,atk:10,cd:0.8,n:4},gar:40,sight:10,val:600,desc:'Heart of your kingdom: fires 4 arrows every 0.8 s (+1 per garrisoned unit, +2 per archer). Lose it and you are defeated.'},
@@ -45,7 +45,7 @@ const BLD={
  wall:{name:'Wall',w:1,h:1,hp:700,cost:{stone:6},time:4,wall:true,sight:2,val:6,desc:'Blocks movement. Click-drag to build a line.'},
  gate:{name:'Gate',w:1,h:1,hp:900,cost:{stone:20,wood:10},time:6,wall:true,gate:true,sight:3,val:30,desc:'Wall segment your own units can pass.'},
  tower:{name:'Tower',w:1,h:1,hp:900,cost:{stone:100,wood:40},time:22,shoot:{range:7,atk:9,cd:1.4,n:1},gar:6,sight:9,val:140,desc:'Shoots arrows at enemies in range. Garrisons 6 infantry/peasants; each adds an arrow (archers 2).'},
- fortress:{name:'Fortress',w:3,h:3,hp:3600,cost:{stone:400,wood:200,gold:150},time:55,pop:10,drop:ALLRES,shoot:{range:11.5,atk:10,cd:0.8,n:8},gar:30,train:['spearman','archer','knight'],sight:12,val:750,desc:'Mighty stronghold: +10 pop, drop-off, trains troops, fires 8 arrows every 0.8 s (twice the Keep, +1 per garrisoned unit, +2 per archer) out to 11.5 tiles (catapult range + 3).'},
+ fortress:{name:'Fortress',w:3,h:3,hp:3600,cost:{stone:400,wood:200,gold:150},time:55,pop:10,drop:ALLRES,shoot:{range:11.5,atk:10,cd:0.8,n:8,bld:true},gar:30,train:['spearman','archer','knight'],sight:12,val:750,desc:'Mighty stronghold: +10 pop, drop-off, trains troops, fires 8 arrows every 0.8 s (twice the Keep, +1 per garrisoned unit, +2 per archer) out to 11.5 tiles (catapult range + 3). With no enemy units in range it shoots enemy buildings, towers first (25 damage/s).'},
 };
 const GAR_T=['peasant','spearman','archer'];const canGar=u=>GAR_T.includes(u.type);
 const BUILD_MENU=['house','farm','lumber','quarry','mine','market','barracks','stable','workshop','wall','gate','tower','fortress'];
@@ -207,6 +207,8 @@ function moveAlong(u,dt){
  if(u.pend){if(pathBudget>0&&pathExp>0){pathBudget--;u.pw=0;computePath(u);}else if((u.pw=(u.pw||0)+1)>18&&pathEmerg>0){pathEmerg--;u.pw=0;computePath(u);}return false;}
  if(!u.path||!u.path.length)return true;
  const p=u.path[0];const dx=p[0]-u.x,dy=p[1]-u.y,d=Math.hypot(dx,dy);const step=UNITS[u.type].speed*dt;
+ if(d>1e-4){u.hx=dx/d;u.hy=dy/d;}
+ if(u.yieldT>time&&!(u.ghostT>time)){u.moving=true;return false;}   // giving way to a unit coming the other way (see separation)
  if(Math.abs(dx-dy)>0.01)u.dir=(dx-dy)>0?1:-1;
  if(d<=step){u.x=p[0];u.y=p[1];u.path.shift();return !u.path.length;}
  u.x+=dx/d*step;u.y+=dy/d*step;u.moving=true;return false;}
@@ -308,6 +310,10 @@ function updateUnit(u,dt){
   u.scanT-=dt;if(u.scanT<=0){u.scanT=.5+Math.random()*.2;if(u.type!=='peasant'){const e=findEnemy(u,D.sight);if(e){u.guard=u.guard||{x:u.x,y:u.y};u.target=e;u.state='attack';u.leash=true;}}}
  }else peasantUpdate(u,dt);
  // stuck detection
+ // no progress towards the goal for ~1 s while walking (crowd, gap, head-on traffic): ghost through friendly units for 2 s
+ if(u.moving&&u.goal){u.pgT=(u.pgT||0)+dt;if(u.pgT>=0.5){u.pgT=0;const dg=dist(u.x,u.y,u.goal.x,u.goal.y);
+   if(u.pgD!=null&&u.pgD-dg<0.2&&dg>1)u.pgN=(u.pgN||0)+1;else u.pgN=0;u.pgD=dg;if(u.pgN>=2){u.ghostT=time+2;u.pgN=0;}}}
+ else{u.pgT=0;u.pgD=null;u.pgN=0;}
  if(u.moving){u.stuckT+=dt;if(u.stuckT>1.5){if(dist(u.x,u.y,u.lx,u.ly)<0.3&&u.goal){u.stuckN=(u.stuckN||0)+1;u.path=[];u.pend={x:u.goal.x,y:u.goal.y};}else u.stuckN=0;u.stuckT=0;u.lx=u.x;u.ly=u.y;}}
  if(u.type==='peasant')peasantWatchdog(u);
 }
@@ -357,14 +363,29 @@ function separation(){
  for(const u of units){if(u.dead||u.inG)continue;
   queryUnits(u.x,u.y,0.8,v=>{if(v.id<=u.id||v.dead)return;const dx=v.x-u.x,dy=v.y-u.y,d2=dx*dx+dy*dy;
    const mn=(u.type==='knight'||u.type==='catapult'||v.type==='knight'||v.type==='catapult')?0.6:0.42;
-   if(d2>=mn*mn)return;if(d2<1e-6){tryMove(u,rr(-.05,.05),rr(-.05,.05));return;}
-   const d=Math.sqrt(d2),push=(mn-d)*0.35,nx=dx/d*push,ny=dy/d*push;
-   const wu=u.working?0.2:1,wv=v.working?0.2:1;let sx=0,sy=0;
-   // two units walking into each other (head-on in a corridor) would push each other straight back forever: add a sideways slide
-   // (also when walking into a standing unit, e.g. soldiers parked in a gap: the walker slides around it, the idle one yields more)
-   if(u.moving||v.moving){const s=(u.id&1)?1:-1;sx=-ny*s*1.2;sy=nx*s*1.2;}
-   const yu=(!u.moving&&v.moving&&!u.working)?1.6:1,yv=(!v.moving&&u.moving&&!v.working)?1.6:1;
-   tryMove(u,-nx*wu*yu-(u.moving?sx:0),-ny*wu*yu-(u.moving?sy:0));tryMove(v,nx*wv*yv+(v.moving?sx:0),ny*wv*yv+(v.moving?sy:0));});}}
+   if(d2>=mn*mn)return;if(d2<1e-6){const a=(u.id*2.399)%6.283;tryMove(u,Math.cos(a)*.05,Math.sin(a)*.05);return;}   // deterministic
+   const d=Math.sqrt(d2),push=(mn-d)*0.35,ux=dx/d,uy=dy/d,nx=ux*push,ny=uy*push;
+   // friendly units that are stuck ghost through each other for a moment (no shove, no slide) - this ends any remaining dance
+   if(u.owner===v.owner&&(u.ghostT>time||v.ghostT>time)&&(u.moving||v.moving)){if(!u.moving)tryMove(u,-nx*.5,-ny*.5);if(!v.moving)tryMove(v,nx*.5,ny*.5);return;}
+   let wu=u.working?0.2:1,wv=v.working?0.2:1;
+   // right of way: a walking unit shoves idle units aside (they give way more) and is itself barely pushed back
+   if(u.moving&&!v.moving&&!v.working){wu*=.4;wv*=1.6;}else if(v.moving&&!u.moving&&!u.working){wv*=.4;wu*=1.6;}
+   let su=0,sv=0;
+   if(u.moving&&v.moving){const dot=(u.hx||0)*(v.hx||0)+(u.hy||0)*(v.hy||0);
+    if(dot<-0.2){// head-on: both keep to their RIGHT (so they pass each other), and the lower-priority one also waits a moment.
+     // Priority (deterministic): the unit standing in a narrow spot (gap/gate) first, then whoever has waited longer, then lower id.
+     const pr=w=>narrow(w)*4+Math.min(w.waitN||0,3),pu=pr(u),pv=pr(v);const uWins=pu>pv||(pu===pv&&u.id<v.id);const L=uWins?v:u,Wn=uWins?u:v;
+     if(!(L.yieldT>time)){L.yieldT=time+0.3;L.waitN=(L.waitN||0)+1;}Wn.waitN=0;if(Wn===u){wu*=.5;}else{wv*=.5;}
+     su=1.2;sv=1.2;}
+    else if(dot<0.5){su=1.0;sv=1.0;}   // crossing paths: keep right as well
+    // same direction (a group walking together): plain separation only, no sideways jitter
+   }else if(u.moving||v.moving){if(u.moving)su=1.2;else sv=1.2;}   // walking around a standing unit: keep right of it
+   // the slide is to each walker's own right, relative to its heading, and only while the other unit is ahead of it
+   const rightOf=(w,ax,ay,s)=>{const hx=w.hx||0,hy=w.hy||0;if(hx*ax+hy*ay<0.1)return[0,0];return[-hy*push*s,hx*push*s];};
+   const ru=su?rightOf(u,ux,uy,su):[0,0],rv=sv?rightOf(v,-ux,-uy,sv):[0,0];
+   tryMove(u,-nx*wu+ru[0],-ny*wu+ru[1]);tryMove(v,nx*wv+rv[0],ny*wv+rv[1]);});}}
+// 1 when the unit stands in a narrow passage (a tile with at most 2 passable 4-neighbours: a wall gap, a gate, a corridor)
+function narrow(u){const x=Math.floor(u.x),y=Math.floor(u.y),o=u.owner;return (passable(x+1,y,o)+passable(x-1,y,o)+passable(x,y+1,o)+passable(x,y-1,o))<=2?1:0;}
 function tryMove(u,dx,dy){const cur=passable(Math.floor(u.x),Math.floor(u.y),u.owner);
  const nx=u.x+dx;if(!cur||passable(Math.floor(nx),Math.floor(u.y),u.owner))u.x=clamp(nx,0.05,MAP-0.05);
  const ny=u.y+dy;if(!cur||passable(Math.floor(u.x),Math.floor(ny),u.owner))u.y=clamp(ny,0.05,MAP-0.05);}
@@ -382,7 +403,9 @@ function updateBld(b,dt){const D=BLD[b.type];const P=players[b.owner];
   else{b.noFundsT=time;}if(!afford(P,rc)&&time-(b.rfT||-99)>8){b.rfT=time;if(P.isHuman){msg(`Not enough wood/stone to repair the ${D.name}.`,'#ff9a8a',b.owner);sfx('err',b.x,b.y,b.owner);}}}
  if(D.income)P.res.gold+=D.income*dt*(P.isAI?DIFF[difficulty].mult:1);
  if(D.shoot){b.cd-=dt;if(b.cd<=0){const S=D.shoot;const cands=[];queryUnits(b.x,b.y,S.range+1,v=>{if(!v.dead&&isEnemy(b.owner,v.owner)){const d=distTo(v,b);if(d<=S.range)cands.push([d,v]);}});
-  if(cands.length){cands.sort((a,c)=>a[0]-c[0]);sfx('bow',b.x,b.y,b.owner);fireVolley(b,S,cands);b.cd=S.cd;}else b.cd=.3;}}
+  if(cands.length){cands.sort((a,c)=>a[0]-c[0]);sfx('bow',b.x,b.y,b.owner);fireVolley(b,S,cands);b.cd=S.cd;}
+  else if(S.bld){const t=fortBldTarget(b,S.range);if(t){sfx('bow',b.x,b.y,b.owner);fireVolley(b,S,[[0,t]],true);b.cd=S.cd;}else b.cd=.3;}
+  else b.cd=.3;}}
  if(b.queue.length){const ut=b.queue[0],UD=UNITS[ut];b.trainT+=dt*(P.isAI?Math.sqrt(DIFF[difficulty].mult):1);
   if(b.trainT>=UD.time){if(P.pop+UD.pop<=P.popCap){b.queue.shift();b.trainT=0;b.blocked=false;P.pop+=UD.pop;P.stats.trained++;spawnFrom(b,ut);sfx('trained',b.x,b.y,b.owner,ut==='peasant'?0:1);}
    else{b.trainT=UD.time;if(!b.blocked&&P.isHuman){msg('Population limit reached — build Houses!','#ffd27a',b.owner);sfx('err',b.x,b.y,b.owner);}b.blocked=true;}}}}
@@ -518,10 +541,18 @@ function unstickPeasant(u){u.path=null;u.pend=null;u.stuckN=2;const j=u.job;
 // flying at the same target: damage is preserved, p.n counts how many arrows it stands for (fewer objects to sim/render/send).
 const GAR_ARROW_DMG=3,VOLLEY_VIS=16,PROJ_CAP=700;
 function garVolley(b){let a=0,o=0;if(b.gar)for(const u of b.gar){if(u.type==='archer')a++;else o++;}return{a,o};}
-function fireVolley(b,S,cands){const g=garVolley(b);const specs=[];
+// Fortress only (shoot.bld): with no enemy unit in range it shoots enemy buildings in range: walls, gates and unfinished
+// sites included. Buildings that shoot back (towers, keeps, fortresses) come first, then the nearest. Only buildings the
+// owner can see count (the range 11.5 is inside the Fortress's own sight, so this only matters for fog edge cases).
+function rectDist(a,t){const dx=Math.max(0,t.tx-(a.tx+a.w),a.tx-(t.tx+t.w)),dy=Math.max(0,t.ty-(a.ty+a.h),a.ty-(t.ty+t.h));return Math.hypot(dx,dy);}
+function fortBldTarget(b,range){const V=fogOn?visMap[b.owner]:null;let best=null,bs=1e9;
+ for(const t of blds){if(t.dead||!isEnemy(b.owner,t.owner)||Math.abs(t.x-b.x)>range+4||Math.abs(t.y-b.y)>range+4)continue;const d=rectDist(b,t);if(d>range)continue;
+  if(V){let seen=false;for(let y=t.ty;y<t.ty+t.h&&!seen;y++)for(let x=t.tx;x<t.tx+t.w;x++)if(V[y*MAP+x]===2){seen=true;break;}if(!seen)continue;}
+  const sc=d+(BLD[t.type].shoot?0:100);if(sc<bs){bs=sc;best=t;}}return best;}
+function fireVolley(b,S,cands,bldMode){const g=bldMode?{a:0,o:0}:garVolley(b);const specs=[];
  // your defences engaging counts as combat for your battle music (silent 'atk' marker, throttled like hits)
  {const P=players[b.owner];if(P&&P.isHuman&&time-(P.atkT||-9)>0.25){P.atkT=time;sfx('atk',b.x,b.y,b.owner);}}
- for(let k=0;k<S.n;k++)specs.push([S.atk,'tower']);
+ for(let k=0;k<S.n;k++)specs.push([S.atk,bldMode?'fortb':'tower']);
  for(let k=0;k<g.a*2;k++)specs.push([UNITS.archer.atk,'archer']);
  for(let k=0;k<g.o;k++)specs.push([GAR_ARROW_DMG,'archer']);
  const cap=projs.length>=PROJ_CAP?Math.min(4,cands.length):VOLLEY_VIS;const made=[],byKey=new Map();
@@ -642,7 +673,11 @@ function updateVisFor(pid){let V=visMap[pid];if(!V)V=visMap[pid]=new Uint8Array(
  const P=players[pid];if(!fogOn||(P&&P.surrendered)){V.fill(2);return V;}
  for(let i=0;i<V.length;i++)if(V[i]===2)V[i]=1;
  for(const u of units)if(u.owner===pid&&!u.dead&&!u.inG)markVis(V,u.x,u.y,UNITS[u.type].sight);
- for(const b of blds)if(b.owner===pid&&!b.dead)markVis(V,b.x,b.y,(BLD[b.type].sight||4)+b.w/2);return V;}
+ // finished buildings give sight; an unfinished site (b.built false) reveals only its own footprint, so a far-away
+ // foundation can't be used to scout. Builders still see with their own unit sight. Vision turns on once it is built.
+ for(const b of blds){if(b.owner!==pid||b.dead)continue;if(b.built)markVis(V,b.x,b.y,(BLD[b.type].sight||4)+b.w/2);
+  else for(let y=b.ty;y<b.ty+b.h;y++)for(let x=b.tx;x<b.tx+b.w;x++)if(x>=0&&y>=0&&x<MAP&&y<MAP)V[y*MAP+x]=2;}
+ return V;}
 function updateVis(){for(const p of players)if(p.isHuman)updateVisFor(p.id);}
 const visAt=(x,y)=>{const tx=Math.floor(x),ty=Math.floor(y);return inb(tx,ty)&&vis?vis[ty*MAP+tx]:0;};
 
@@ -686,6 +721,9 @@ function applyCmd(pid,c){const P=players[pid];if(!P||P.surrendered||!c)return;
    if(b.type==='keep'){keep=true;continue;}   // your only Keep: demolishing it would mean surrender, so it is not allowed
    if(!b.built){refund(P,BLD[b.type].cost);b.cancelled=true;}else b.demolished=true;killEnt(b,-1);n++;}
   if(keep)errMsg('The Keep cannot be demolished.','#ff9a8a',pid);break;}
+ case 'kill':{// Del on own units: they die (normal death, no refund); claims, garrison reservations and population free up
+  const ids=Array.isArray(c.ids)?c.ids.slice(0,400):[];for(const id of ids){const u=byId.get(id);if(!u||u.dead||u.kind!=='unit'||u.owner!==pid)continue;
+   if(u.inG){const gb=u.inG,i=gb.gar.indexOf(u);if(i>=0)gb.gar.splice(i,1);u.inG=null;}u.garB=null;killEnt(u,-1);u.bld=null;}break;}
  case 'trade':{const r=c.res,amt=Math.floor(+c.amt);if(!TRADE_RES.includes(r)||!(amt>0)||amt>100000||amt%TRADE_RATE)break;
   if(!myB||myB.type!=='market'||!myB.built){errMsg('Trading needs a finished Market.','#ff9a8a',pid);break;}
   if(c.dir==='sell'){if(P.res[r]<amt){errMsg(`Not enough ${r} to sell.`,'#ff9a8a',pid);break;}P.res[r]-=amt;P.res.gold+=amt/TRADE_RATE;sfx('trade',myB.x,myB.y,pid);}
@@ -884,9 +922,13 @@ const fogCan=document.createElement('canvas'),fogCtx=fogCan.getContext('2d');let
 const hexRGB=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
 function groundLayer(){if(groundFor!==gcls||groundCan.width!==MAP){groundCan.width=groundCan.height=MAP;const im=groundCtx.createImageData(MAP,MAP),d=im.data,C=GCOL.map(hexRGB);
   for(let i=0;i<MAP*MAP;i++){const c=C[gcls[i]];d[i*4]=c[0];d[i*4+1]=c[1];d[i*4+2]=c[2];d[i*4+3]=255;}groundCtx.putImageData(im,0,0);groundFor=gcls;}return groundCan;}
-function fogLayer(){const N=MAP+2;   // 1-tile opaque border so the antialiased map edge of the ground image stays covered
- if(fogCan.width!==N||!fogImg){fogCan.width=fogCan.height=N;fogImg=fogCtx.createImageData(N,N);const d=fogImg.data;for(let o=0;o<d.length;o+=4){d[o]=11;d[o+1]=13;d[o+2]=16;d[o+3]=255;}}const d=fogImg.data;
- for(let y=0;y<MAP;y++)for(let x=0;x<MAP;x++){const v=vis[y*MAP+x],o=((y+1)*N+x+1)*4;if(v===0){d[o]=11;d[o+1]=13;d[o+2]=16;d[o+3]=255;}else if(v===1){d[o]=8;d[o+1]=10;d[o+2]=14;d[o+3]=128;}else d[o+3]=0;}
+// The fog image has a 1-tile border so the antialiased map edge of the ground image stays covered where the edge is fogged.
+// The border copies the fog of the edge tile next to it: an opaque border in front of a VISIBLE edge used to hide the upper
+// part of buildings standing on the upper-right (y=0) and upper-left (x=0) edges, because they are drawn up into that band.
+function fogLayer(){const N=MAP+2;
+ if(fogCan.width!==N||!fogImg){fogCan.width=fogCan.height=N;fogImg=fogCtx.createImageData(N,N);}const d=fogImg.data;
+ for(let py=0;py<N;py++)for(let px=0;px<N;px++){const x=px<1?0:px>MAP?MAP-1:px-1,y=py<1?0:py>MAP?MAP-1:py-1;const v=vis[y*MAP+x],o=(py*N+px)*4;
+  if(v===0){d[o]=11;d[o+1]=13;d[o+2]=16;d[o+3]=255;}else if(v===1){d[o]=8;d[o+1]=10;d[o+2]=14;d[o+3]=128;}else{d[o]=0;d[o+1]=0;d[o+2]=0;d[o+3]=0;}}
  fogCtx.putImageData(fogImg,0,0);return fogCan;}
 function drawTileLayer(can,off=0){ctx.save();ctx.transform(32,16,-32,16,0,0);ctx.imageSmoothingEnabled=false;ctx.drawImage(can,-off,-off);ctx.restore();}
 let renderStats={tiles:0,units:0};
@@ -1099,9 +1141,9 @@ function drawHelp(){uiBtns=[];tip=null;const [x,y]=overlayPanel(Math.min(W-40,90
  ['Economy','Peasants gather wood (trees), stone (grey rocks), gold (glittering rocks): right-click them. Goods are carried to the Keep or nearest Lumber Camp / Quarry / Gold Mine. Farms give food: right-click a farm with peasants (2 per farm). Markets yield gold.'],
  ['Build','B opens the build menu, then a letter: H House, F Farm, L Lumber Camp, Q Quarry, G Gold Mine, M Market, B Barracks, S Stable, W Workshop, A Wall, E Gate, T Tower, O Fortress (Shift+letter = place several, Esc cancels). Or click a BUILD button. Place anywhere on open, explored ground that is not occupied by buildings, resources, water or enemy units (red ghost = invalid); there is no territory limit, expansion only needs peasants to walk there and build. Selected peasants (or the nearest idle one) walk over and build; more builders = faster (diminishing). Right-click a site or damaged building with peasants to build/repair, or select the building and press N (Repair: nearest idle peasants; costs wood/stone in proportion to damage). Del cancels a site (full refund; 50% back if destroyed unfinished).'],
  ['Market','Select a finished Market to trade at fixed rates, gold only: sell 100 food, wood or stone for 25 gold (4:1), or buy 100 of them for 400 gold (1 for 4). Shift+click trades ×10. Greyed buttons mean you can\'t afford it. A Market also earns +0.5 gold/sec.'],
- ['Demolish','Del or Backspace (or the Demolish button) tears down the selected finished buildings or walls you own, with no refund. On an unfinished site it cancels instead (full refund). Shift+click selects several buildings; double-click selects every one of that type on screen. The Keep cannot be demolished.'],
+ ['Delete','Del or Backspace kills your selected units (any type, no refund) and tears down your selected finished buildings or walls (also the Demolish button), with no refund. On an unfinished site it cancels instead (full refund). Shift+click selects several buildings; double-click selects every one of that type on screen. The Keep cannot be demolished.'],
  ['Gates','A Gate can be placed straight onto your own wall (green ghost): it replaces that wall segment (the wall\'s stone is not refunded). Gates can\'t go over enemy walls or other buildings.'],
- ['Garrison','Right-click your Keep (40), Fortress (30) or Tower (6) with peasants/spearmen/archers, or press G. Inside they are safe and shoot: every garrisoned unit adds 1 arrow per volley (archers 2). Keep: 4 arrows / 0.8 s, Fortress: 8 arrows / 0.8 s out to 11.5 tiles. U unloads (to the rally point). Town Bell: B with the Keep selected (or Shift+B anywhere) calls peasants first, then infantry inside; ring again to release — peasants resume work. Units flee out if the building falls.'],
+ ['Garrison','Right-click your Keep (40), Fortress (30) or Tower (6) with peasants/spearmen/archers, or press G. Inside they are safe and shoot: every garrisoned unit adds 1 arrow per volley (archers 2). Keep: 4 arrows / 0.8 s, Fortress: 8 arrows / 0.8 s out to 11.5 tiles; with no enemy units in range it shoots enemy buildings (towers, keeps and fortresses first, then walls, gates and sites) for 25 damage/s. U unloads (to the rally point). Town Bell: B with the Keep selected (or Shift+B anywhere) calls peasants first, then infantry inside; ring again to release — peasants resume work. Units flee out if the building falls.'],
  ['Army','Keep trains peasants; Barracks: spearmen & archers; Stable: knights; Workshop: catapults. Q/E/R/T train from the selected building (when the build menu is closed). Right-click with a building selected sets its rally point. Houses raise population.'],
  ['Counters','Spearmen beat knights. Knights crush archers & catapults. Archers shred infantry. Catapults demolish walls and buildings. Towers, Keeps and Fortresses shoot arrows.'],
  ['Rivals','Ravenmoor is aggressive and attacks early. Eldmark builds a big economy and strikes late with large armies. Stonehold walls itself in with towers. Rivals also fight each other.'],
@@ -1392,10 +1434,11 @@ function clickSelect(sx,sy,add){const e=pickAt(sx,sy);const now=performance.now(
  if(e.kind==='bld'&&e.owner===me&&now-lastClick.t<350&&lastClick.type==='b:'+e.type){sel=blds.filter(b=>!b.dead&&b.owner===me&&b.type===e.type&&onScreen(b.x,b.y,0));lastClick.t=0;return;}
  if(add&&e.kind==='bld'&&e.owner===me&&sel.length&&sel.every(x=>x.kind==='bld'&&x.owner===me)){lastClick={t:now,type:'b:'+e.type};const i=sel.indexOf(e);if(i>=0)sel.splice(i,1);else sel.push(e);return;}
  if(add&&e.kind==='unit'&&e.owner===me){sel=sel.filter(x=>x.kind==='unit');const i=sel.indexOf(e);if(i>=0)sel.splice(i,1);else sel.push(e);}else sel=[e];}
-// Delete / Backspace / panel button: unfinished sites are cancelled (full refund), finished own buildings and walls are demolished
+// Delete / Backspace: selected own units are killed (no refund); unfinished sites are cancelled (full refund), finished own buildings and walls are demolished
 // (no refund). The Keep can never be demolished (it is your only one; losing it means defeat).
-function demolishSel(){const bs=sel.filter(b=>b.kind==='bld'&&!b.dead&&b.owner===me);if(!bs.length)return;const rest=bs.filter(b=>b.type!=='keep');
- if(!rest.length){msg('The Keep cannot be demolished.','#ff9a8a',me);AU.play('err');return;}
+function demolishSel(){const us=sel.filter(u=>u.kind==='unit'&&!u.dead&&u.owner===me);if(us.length){issue({t:'kill',ids:us.map(u=>u.id)});sel=sel.filter(x=>!us.includes(x));}
+ const bs=sel.filter(b=>b.kind==='bld'&&!b.dead&&b.owner===me);if(!bs.length)return;const rest=bs.filter(b=>b.type!=='keep');
+ if(!rest.length){if(!us.length){msg('The Keep cannot be demolished.','#ff9a8a',me);AU.play('err');}return;}
  if(rest.length===1&&!rest[0].built)issue({t:'cancelbld',bid:rest[0].id});else issue({t:'demolish',bids:rest.map(b=>b.id)});
  sel=sel.filter(x=>!rest.includes(x));AU.ui('click');}
 function tradeCmd(m,res,dir,lots){const amt=100*lots;issue({t:'trade',bid:m.id,res,dir,amt});}

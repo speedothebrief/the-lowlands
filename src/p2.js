@@ -96,6 +96,10 @@ function updateUnit(u,dt){
   u.scanT-=dt;if(u.scanT<=0){u.scanT=.5+Math.random()*.2;if(u.type!=='peasant'){const e=findEnemy(u,D.sight);if(e){u.guard=u.guard||{x:u.x,y:u.y};u.target=e;u.state='attack';u.leash=true;}}}
  }else peasantUpdate(u,dt);
  // stuck detection
+ // no progress towards the goal for ~1 s while walking (crowd, gap, head-on traffic): ghost through friendly units for 2 s
+ if(u.moving&&u.goal){u.pgT=(u.pgT||0)+dt;if(u.pgT>=0.5){u.pgT=0;const dg=dist(u.x,u.y,u.goal.x,u.goal.y);
+   if(u.pgD!=null&&u.pgD-dg<0.2&&dg>1)u.pgN=(u.pgN||0)+1;else u.pgN=0;u.pgD=dg;if(u.pgN>=2){u.ghostT=time+2;u.pgN=0;}}}
+ else{u.pgT=0;u.pgD=null;u.pgN=0;}
  if(u.moving){u.stuckT+=dt;if(u.stuckT>1.5){if(dist(u.x,u.y,u.lx,u.ly)<0.3&&u.goal){u.stuckN=(u.stuckN||0)+1;u.path=[];u.pend={x:u.goal.x,y:u.goal.y};}else u.stuckN=0;u.stuckT=0;u.lx=u.x;u.ly=u.y;}}
  if(u.type==='peasant')peasantWatchdog(u);
 }
@@ -145,14 +149,29 @@ function separation(){
  for(const u of units){if(u.dead||u.inG)continue;
   queryUnits(u.x,u.y,0.8,v=>{if(v.id<=u.id||v.dead)return;const dx=v.x-u.x,dy=v.y-u.y,d2=dx*dx+dy*dy;
    const mn=(u.type==='knight'||u.type==='catapult'||v.type==='knight'||v.type==='catapult')?0.6:0.42;
-   if(d2>=mn*mn)return;if(d2<1e-6){tryMove(u,rr(-.05,.05),rr(-.05,.05));return;}
-   const d=Math.sqrt(d2),push=(mn-d)*0.35,nx=dx/d*push,ny=dy/d*push;
-   const wu=u.working?0.2:1,wv=v.working?0.2:1;let sx=0,sy=0;
-   // two units walking into each other (head-on in a corridor) would push each other straight back forever: add a sideways slide
-   // (also when walking into a standing unit, e.g. soldiers parked in a gap: the walker slides around it, the idle one yields more)
-   if(u.moving||v.moving){const s=(u.id&1)?1:-1;sx=-ny*s*1.2;sy=nx*s*1.2;}
-   const yu=(!u.moving&&v.moving&&!u.working)?1.6:1,yv=(!v.moving&&u.moving&&!v.working)?1.6:1;
-   tryMove(u,-nx*wu*yu-(u.moving?sx:0),-ny*wu*yu-(u.moving?sy:0));tryMove(v,nx*wv*yv+(v.moving?sx:0),ny*wv*yv+(v.moving?sy:0));});}}
+   if(d2>=mn*mn)return;if(d2<1e-6){const a=(u.id*2.399)%6.283;tryMove(u,Math.cos(a)*.05,Math.sin(a)*.05);return;}   // deterministic
+   const d=Math.sqrt(d2),push=(mn-d)*0.35,ux=dx/d,uy=dy/d,nx=ux*push,ny=uy*push;
+   // friendly units that are stuck ghost through each other for a moment (no shove, no slide) - this ends any remaining dance
+   if(u.owner===v.owner&&(u.ghostT>time||v.ghostT>time)&&(u.moving||v.moving)){if(!u.moving)tryMove(u,-nx*.5,-ny*.5);if(!v.moving)tryMove(v,nx*.5,ny*.5);return;}
+   let wu=u.working?0.2:1,wv=v.working?0.2:1;
+   // right of way: a walking unit shoves idle units aside (they give way more) and is itself barely pushed back
+   if(u.moving&&!v.moving&&!v.working){wu*=.4;wv*=1.6;}else if(v.moving&&!u.moving&&!u.working){wv*=.4;wu*=1.6;}
+   let su=0,sv=0;
+   if(u.moving&&v.moving){const dot=(u.hx||0)*(v.hx||0)+(u.hy||0)*(v.hy||0);
+    if(dot<-0.2){// head-on: both keep to their RIGHT (so they pass each other), and the lower-priority one also waits a moment.
+     // Priority (deterministic): the unit standing in a narrow spot (gap/gate) first, then whoever has waited longer, then lower id.
+     const pr=w=>narrow(w)*4+Math.min(w.waitN||0,3),pu=pr(u),pv=pr(v);const uWins=pu>pv||(pu===pv&&u.id<v.id);const L=uWins?v:u,Wn=uWins?u:v;
+     if(!(L.yieldT>time)){L.yieldT=time+0.3;L.waitN=(L.waitN||0)+1;}Wn.waitN=0;if(Wn===u){wu*=.5;}else{wv*=.5;}
+     su=1.2;sv=1.2;}
+    else if(dot<0.5){su=1.0;sv=1.0;}   // crossing paths: keep right as well
+    // same direction (a group walking together): plain separation only, no sideways jitter
+   }else if(u.moving||v.moving){if(u.moving)su=1.2;else sv=1.2;}   // walking around a standing unit: keep right of it
+   // the slide is to each walker's own right, relative to its heading, and only while the other unit is ahead of it
+   const rightOf=(w,ax,ay,s)=>{const hx=w.hx||0,hy=w.hy||0;if(hx*ax+hy*ay<0.1)return[0,0];return[-hy*push*s,hx*push*s];};
+   const ru=su?rightOf(u,ux,uy,su):[0,0],rv=sv?rightOf(v,-ux,-uy,sv):[0,0];
+   tryMove(u,-nx*wu+ru[0],-ny*wu+ru[1]);tryMove(v,nx*wv+rv[0],ny*wv+rv[1]);});}}
+// 1 when the unit stands in a narrow passage (a tile with at most 2 passable 4-neighbours: a wall gap, a gate, a corridor)
+function narrow(u){const x=Math.floor(u.x),y=Math.floor(u.y),o=u.owner;return (passable(x+1,y,o)+passable(x-1,y,o)+passable(x,y+1,o)+passable(x,y-1,o))<=2?1:0;}
 function tryMove(u,dx,dy){const cur=passable(Math.floor(u.x),Math.floor(u.y),u.owner);
  const nx=u.x+dx;if(!cur||passable(Math.floor(nx),Math.floor(u.y),u.owner))u.x=clamp(nx,0.05,MAP-0.05);
  const ny=u.y+dy;if(!cur||passable(Math.floor(u.x),Math.floor(ny),u.owner))u.y=clamp(ny,0.05,MAP-0.05);}
@@ -170,7 +189,9 @@ function updateBld(b,dt){const D=BLD[b.type];const P=players[b.owner];
   else{b.noFundsT=time;}if(!afford(P,rc)&&time-(b.rfT||-99)>8){b.rfT=time;if(P.isHuman){msg(`Not enough wood/stone to repair the ${D.name}.`,'#ff9a8a',b.owner);sfx('err',b.x,b.y,b.owner);}}}
  if(D.income)P.res.gold+=D.income*dt*(P.isAI?DIFF[difficulty].mult:1);
  if(D.shoot){b.cd-=dt;if(b.cd<=0){const S=D.shoot;const cands=[];queryUnits(b.x,b.y,S.range+1,v=>{if(!v.dead&&isEnemy(b.owner,v.owner)){const d=distTo(v,b);if(d<=S.range)cands.push([d,v]);}});
-  if(cands.length){cands.sort((a,c)=>a[0]-c[0]);sfx('bow',b.x,b.y,b.owner);fireVolley(b,S,cands);b.cd=S.cd;}else b.cd=.3;}}
+  if(cands.length){cands.sort((a,c)=>a[0]-c[0]);sfx('bow',b.x,b.y,b.owner);fireVolley(b,S,cands);b.cd=S.cd;}
+  else if(S.bld){const t=fortBldTarget(b,S.range);if(t){sfx('bow',b.x,b.y,b.owner);fireVolley(b,S,[[0,t]],true);b.cd=S.cd;}else b.cd=.3;}
+  else b.cd=.3;}}
  if(b.queue.length){const ut=b.queue[0],UD=UNITS[ut];b.trainT+=dt*(P.isAI?Math.sqrt(DIFF[difficulty].mult):1);
   if(b.trainT>=UD.time){if(P.pop+UD.pop<=P.popCap){b.queue.shift();b.trainT=0;b.blocked=false;P.pop+=UD.pop;P.stats.trained++;spawnFrom(b,ut);sfx('trained',b.x,b.y,b.owner,ut==='peasant'?0:1);}
    else{b.trainT=UD.time;if(!b.blocked&&P.isHuman){msg('Population limit reached — build Houses!','#ffd27a',b.owner);sfx('err',b.x,b.y,b.owner);}b.blocked=true;}}}}
@@ -306,10 +327,18 @@ function unstickPeasant(u){u.path=null;u.pend=null;u.stuckN=2;const j=u.job;
 // flying at the same target: damage is preserved, p.n counts how many arrows it stands for (fewer objects to sim/render/send).
 const GAR_ARROW_DMG=3,VOLLEY_VIS=16,PROJ_CAP=700;
 function garVolley(b){let a=0,o=0;if(b.gar)for(const u of b.gar){if(u.type==='archer')a++;else o++;}return{a,o};}
-function fireVolley(b,S,cands){const g=garVolley(b);const specs=[];
+// Fortress only (shoot.bld): with no enemy unit in range it shoots enemy buildings in range: walls, gates and unfinished
+// sites included. Buildings that shoot back (towers, keeps, fortresses) come first, then the nearest. Only buildings the
+// owner can see count (the range 11.5 is inside the Fortress's own sight, so this only matters for fog edge cases).
+function rectDist(a,t){const dx=Math.max(0,t.tx-(a.tx+a.w),a.tx-(t.tx+t.w)),dy=Math.max(0,t.ty-(a.ty+a.h),a.ty-(t.ty+t.h));return Math.hypot(dx,dy);}
+function fortBldTarget(b,range){const V=fogOn?visMap[b.owner]:null;let best=null,bs=1e9;
+ for(const t of blds){if(t.dead||!isEnemy(b.owner,t.owner)||Math.abs(t.x-b.x)>range+4||Math.abs(t.y-b.y)>range+4)continue;const d=rectDist(b,t);if(d>range)continue;
+  if(V){let seen=false;for(let y=t.ty;y<t.ty+t.h&&!seen;y++)for(let x=t.tx;x<t.tx+t.w;x++)if(V[y*MAP+x]===2){seen=true;break;}if(!seen)continue;}
+  const sc=d+(BLD[t.type].shoot?0:100);if(sc<bs){bs=sc;best=t;}}return best;}
+function fireVolley(b,S,cands,bldMode){const g=bldMode?{a:0,o:0}:garVolley(b);const specs=[];
  // your defences engaging counts as combat for your battle music (silent 'atk' marker, throttled like hits)
  {const P=players[b.owner];if(P&&P.isHuman&&time-(P.atkT||-9)>0.25){P.atkT=time;sfx('atk',b.x,b.y,b.owner);}}
- for(let k=0;k<S.n;k++)specs.push([S.atk,'tower']);
+ for(let k=0;k<S.n;k++)specs.push([S.atk,bldMode?'fortb':'tower']);
  for(let k=0;k<g.a*2;k++)specs.push([UNITS.archer.atk,'archer']);
  for(let k=0;k<g.o;k++)specs.push([GAR_ARROW_DMG,'archer']);
  const cap=projs.length>=PROJ_CAP?Math.min(4,cands.length):VOLLEY_VIS;const made=[],byKey=new Map();

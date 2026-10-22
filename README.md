@@ -370,6 +370,12 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
   otherwise back to their previous job. Right-click a site with peasants to help.
   **Del**, or the *Cancel construction* button, removes a site with a full refund.
   A site destroyed before it is finished refunds 50%.
+- **No vision from construction sites.** An unfinished site reveals only its own footprint to its owner, so a
+  far-away foundation can't be used to scout. Builders still see with their own sight, and the building's
+  full sight radius switches on as soon as it is finished.
+- **Delete units.** **Del** / **Backspace** kills your selected units, any type including peasants, with no refund.
+  Multi-selection works. Their resource claims, garrison spots and population are freed, and they die normally.
+  In a mixed selection, every unit and building you own is removed; the Keep is still protected.
 - **Demolish.** Select one or more of your finished buildings or walls, then press **Del** / **Backspace**
   or click *Demolish*. They are torn down with no refund.
   To select several, Shift+click them, or double-click one to select all of that type on screen.
@@ -395,7 +401,11 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
   sending peasants to walk there and build. The placement ghost turns red and shows the reason.
 - **Keep / Fortress arrows.** The Keep fires 4 arrows every 0.8 s (range 7). The Fortress fires
   8 arrows every 0.8 s, twice the Keep, out to 11.5 tiles, which is catapult range (8.5) + 3,
-  so it outranges siege. Each arrow does 10 damage. Volleys spread over nearby enemies, and a
+  so it outranges siege. When no enemy unit is in range, the Fortress shoots enemy **buildings** in range instead:
+  walls, gates and unfinished sites included. Buildings that shoot back (towers, Keeps, Fortresses) go first, then the nearest.
+  Only buildings you can see are targeted. Against buildings only its own 8 arrows fire, at 2.5 damage each (25 damage/s;
+  unfinished sites take the usual 1.5×). That's about one catapult's worth, so it wears down a tower in ~36 s
+  without replacing siege. Keeps and Towers still shoot only at units. Each arrow does 10 damage. Volleys spread over nearby enemies, and a
   lone target still takes the full volley.
 - **Garrisons.** Keep 40, Fortress 30, Tower 6. Peasants, spearmen and archers can garrison; knights and catapults cannot.
   Right-click your Keep/Fortress/Tower with them, or press **G** to use the nearest one with room.
@@ -414,6 +424,11 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
   with room. Ring it again (or Unload) for the all-clear: everyone comes out and peasants resume gathering.
   The AI rings its own bell when a raiding force reaches its Keep and lets its peasants out
   about 8 s after the raiders leave.
+- **Crowd movement.** Walking units have right of way over idle ones, which step aside.
+  Units meeting head-on both keep to their right. In a narrow gap or gate, the unit already in the gap goes first,
+  and the other waits a moment. Whoever has waited longer gets priority next, with ties broken by unit id.
+  Units walking the same way don't jostle sideways. A unit that makes no progress toward its goal for about 1 s
+  briefly ghosts through friendly units. All of this is deterministic.
 - The AI also sends peasants to build every site (walls 1 builder, larger buildings 2–3) and to repair damaged buildings.
 
 ## Controls
@@ -428,6 +443,7 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
 | Build menu | `B`, then a letter: `H` House · `F` Farm · `L` Lumber Camp · `Q` Quarry · `G` Gold Mine · `M` Market · `B` Barracks · `S` Stable · `W` Siege Workshop · `A` Wall · `E` Gate · `T` Tower · `O` Fortress. You can also click a BUILD button (each shows its letter and has a tooltip) |
 | Place | Left-click the map (walls: click-drag a line). Shift+click, or choosing with Shift+letter (e.g. `B`, `Shift+H`), keeps placing several. Right-click / Esc cancels. Selected peasants build it |
 | Cancel site | Select a construction site → `Del` / *Cancel construction* (full refund) |
+| Delete units | Select your units → `Del` / `Backspace` (they die, no refund) |
 | Demolish | Select finished buildings/walls of yours (Shift+click or double-click for several) → `Del` / `Backspace` / *Demolish* (no refund; not the Keep) |
 | Gate in a wall | Build a Gate (`B`, `E`) on top of your own wall tile; it replaces that segment |
 | Market trade | Select a finished Market: *Sell 100 …* (→ 25 gold) / *Buy 100 …* (400 gold); Shift+click = ×10 |
@@ -466,6 +482,7 @@ node test/rules-test.js      # gather claim slots, Keep/Fortress fire rates + ra
                              # builder auto-start, stuck watchdog + no-stuck soak, garrisons + Town Bell (+ AI bell), doubled resource nodes, map sizes,
                              # market trading, demolish, gates over own walls
 node test/sim-test.js [ai] [small|medium|large] [minutes]   # headless soak: AI economy, building, waves, surrender, tick cost
+node test/move-test.js       # crowds crossing / opposing columns through 1–2 tile gaps and a Gate: everyone arrives, nobody 'dances'
 node test/net-soak-test.js   # 3-player server soak, 2 min (SOAK_SEC=120 SPEED=5 LINK_KBS=40): server at 5× load ≈ a Celeron J3455,
                              # tick budget, 15 updates/s, compressed size, slow + stalling link stays current, reconnect + resync,
                              # half-open socket dropped, memory

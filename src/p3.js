@@ -111,7 +111,11 @@ function updateVisFor(pid){let V=visMap[pid];if(!V)V=visMap[pid]=new Uint8Array(
  const P=players[pid];if(!fogOn||(P&&P.surrendered)){V.fill(2);return V;}
  for(let i=0;i<V.length;i++)if(V[i]===2)V[i]=1;
  for(const u of units)if(u.owner===pid&&!u.dead&&!u.inG)markVis(V,u.x,u.y,UNITS[u.type].sight);
- for(const b of blds)if(b.owner===pid&&!b.dead)markVis(V,b.x,b.y,(BLD[b.type].sight||4)+b.w/2);return V;}
+ // finished buildings give sight; an unfinished site (b.built false) reveals only its own footprint, so a far-away
+ // foundation can't be used to scout. Builders still see with their own unit sight. Vision turns on once it is built.
+ for(const b of blds){if(b.owner!==pid||b.dead)continue;if(b.built)markVis(V,b.x,b.y,(BLD[b.type].sight||4)+b.w/2);
+  else for(let y=b.ty;y<b.ty+b.h;y++)for(let x=b.tx;x<b.tx+b.w;x++)if(x>=0&&y>=0&&x<MAP&&y<MAP)V[y*MAP+x]=2;}
+ return V;}
 function updateVis(){for(const p of players)if(p.isHuman)updateVisFor(p.id);}
 const visAt=(x,y)=>{const tx=Math.floor(x),ty=Math.floor(y);return inb(tx,ty)&&vis?vis[ty*MAP+tx]:0;};
 
@@ -155,6 +159,9 @@ function applyCmd(pid,c){const P=players[pid];if(!P||P.surrendered||!c)return;
    if(b.type==='keep'){keep=true;continue;}   // your only Keep: demolishing it would mean surrender, so it is not allowed
    if(!b.built){refund(P,BLD[b.type].cost);b.cancelled=true;}else b.demolished=true;killEnt(b,-1);n++;}
   if(keep)errMsg('The Keep cannot be demolished.','#ff9a8a',pid);break;}
+ case 'kill':{// Del on own units: they die (normal death, no refund); claims, garrison reservations and population free up
+  const ids=Array.isArray(c.ids)?c.ids.slice(0,400):[];for(const id of ids){const u=byId.get(id);if(!u||u.dead||u.kind!=='unit'||u.owner!==pid)continue;
+   if(u.inG){const gb=u.inG,i=gb.gar.indexOf(u);if(i>=0)gb.gar.splice(i,1);u.inG=null;}u.garB=null;killEnt(u,-1);u.bld=null;}break;}
  case 'trade':{const r=c.res,amt=Math.floor(+c.amt);if(!TRADE_RES.includes(r)||!(amt>0)||amt>100000||amt%TRADE_RATE)break;
   if(!myB||myB.type!=='market'||!myB.built){errMsg('Trading needs a finished Market.','#ff9a8a',pid);break;}
   if(c.dir==='sell'){if(P.res[r]<amt){errMsg(`Not enough ${r} to sell.`,'#ff9a8a',pid);break;}P.res[r]-=amt;P.res.gold+=amt/TRADE_RATE;sfx('trade',myB.x,myB.y,pid);}

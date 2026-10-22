@@ -6,7 +6,7 @@ const fs=require('fs'),vm=require('vm'),path=require('path');
 const html=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
 const src=html.slice(html.indexOf('/*SIM-BEGIN*/'),html.indexOf('/*SIM-END*/'));
 const c=vm.createContext({console});
-vm.runInContext(src+';globalThis.API={setupGame,sim,applyCmd,nearestRes,spawnUnit,spawnBld,killEnt,makeSnap,canPlace,repairCost,RT,BLD,UNITS,STEP,RES_AMT,get:()=>({units,blds,players,claim,resT,resA,projs,MAP,STARTS,time})};',c);
+vm.runInContext(src+';globalThis.API={fortBldTarget,updateVisFor,setupGame,sim,applyCmd,nearestRes,spawnUnit,spawnBld,killEnt,makeSnap,canPlace,repairCost,RT,BLD,UNITS,STEP,RES_AMT,get:()=>({units,blds,players,claim,resT,resA,projs,MAP,STARTS,time})};',c);
 const A=c.API;let fails=0;const ok=(v,m)=>{console.log((v?'PASS ':'FAIL ')+m);if(!v)fails++;};
 const run=sec=>{for(let s=0;s<Math.round(sec*30);s++)A.sim(A.STEP);};
 const my=(pid,ty)=>A.get().units.filter(u=>u.owner===pid&&(!ty||u.type===ty));
@@ -207,6 +207,52 @@ console.log('--- market trading (gold only, 4:1)');
  gt.built=true;gt.prog=1;gt.hp=gt.maxhp;const pz=A.spawnUnit('peasant',gx+1.5,gy-2.5,0);A.applyCmd(0,{t:'move',ids:[pz.id],x:gx+1.5,y:gy+2.5});run(8);
  ok(pz.y>gy+1.5,`own peasant walks through the new Gate (y ${pz.y.toFixed(1)})`);
  const ew=A.spawnBld('wall',gx+8,gy,1,true);P.res.stone=500;A.applyCmd(0,{t:'build',type:'gate',spots:[[gx+8,gy]],ids:[]});ok(!ew.dead&&!A.get().blds.some(b=>b.type==='gate'&&!b.dead&&b.tx===gx+8),'cannot place a Gate over an enemy wall');}
+
+console.log('--- Fortress shoots enemy buildings');
+{A.setupGame(1357,[{human:true}],'normal',true);g=A.get();const K=g.players[0].keep;
+ const F=A.spawnBld('fortress',K.tx+8,K.ty,0,true);const fx=F.tx,fy=F.ty;run(.3);
+ const W=A.spawnBld('wall',fx+8,fy+1,1,true),T=A.spawnBld('tower',fx+10,fy+3,1,true),S=A.spawnBld('house',fx-6,fy+5,1,false);T.cd=1e9;
+ for(const b of [W,T,S]){b.hp=b.maxhp=1e6;}A.updateVisFor(0);
+ ok(A.fortBldTarget(F,A.BLD.fortress.shoot.range)===T,'Fortress picks the enemy tower (shoots back) before the nearer wall');
+ const h0={W:W.hp,T:T.hp};run(8);const dT=h0.T-T.hp;ok(dT>150&&dT<260,`no enemy units in range: Fortress damages the tower (${dT.toFixed(0)} in 8 s, ~25/s)`);
+ T.dead=true;const s0=S.hp,w0=W.hp;run(6);
+ ok(s0-S.hp>150&&W.hp===w0,`then the nearest building: an unfinished site, at 1.5x (${(s0-S.hp).toFixed(0)} in 6 s; farther wall untouched)`);
+ S.dead=true;const w1=W.hp;run(6);ok(w1-W.hp>80,`walls are shot too (${(w1-W.hp).toFixed(0)} in 6 s)`);
+ const S2=A.spawnBld('house',fx-6,fy+5,1,false);S2.hp=S2.maxhp=1e6;
+ const kn=A.spawnUnit('knight',fx+5,fy+1,1);kn.hp=kn.maxhp=1e6;kn.state='hold';const s2=S2.hp,k2=kn.hp;run(4);
+ ok(S2.hp===s2&&kn.hp<k2,'an enemy unit in range takes priority over buildings');kn.dead=true;
+ const V=A.updateVisFor(0);for(const e of A.get().blds)if(e.owner!==0)for(let y=e.ty;y<e.ty+e.h;y++)for(let x=e.tx;x<e.tx+e.w;x++)V[y*g.MAP+x]=1;
+ok(A.fortBldTarget(F,A.BLD.fortress.shoot.range)===null,'buildings the owner cannot currently see are not targeted (fog)');
+ // Keep and Tower behaviour unchanged: they ignore buildings
+ const eb=A.spawnBld('house',K.tx-4,K.ty,1,true);eb.hp=eb.maxhp=1e6;const tw=A.spawnBld('tower',K.tx-2,K.ty+4,0,true);F.dead=true;const e0=eb.hp;run(6);
+ ok(eb.hp===e0,'Keep and Tower still never shoot buildings');}
+
+console.log('--- delete own units');
+{A.setupGame(2468,[{human:true}],'normal',false);g=A.get();const P=g.players[0],K=P.keep;
+ const tree=A.nearestRes(1,K.x,K.y,20);const ps=my(0,'peasant');A.applyCmd(0,{t:'gather',ids:[ps[0].id],tx:tree[0],ty:tree[1],x:tree[0],y:tree[1]});
+ const j=ps[0].job,ti=j.ty*g.MAP+j.tx;ok(g.claim[ti]===ps[0].id,'gatherer holds a claim');run(.2);const pop0=P.pop,res0=JSON.stringify(P.res),lost0=P.stats.lost;
+ A.applyCmd(1,{t:'kill',ids:[ps[0].id]});ok(!ps[0].dead,'another kingdom cannot delete my unit');
+ A.applyCmd(0,{t:'kill',ids:[ps[0].id,ps[1].id]});run(.2);
+ ok(ps[0].dead&&ps[1].dead&&g.claim[ti]===0,'kill: both selected peasants die and the resource claim is released');
+ ok(P.pop===pop0-2&&JSON.stringify(P.res)===res0&&P.stats.lost===lost0+2,`no refund, population ${pop0} -> ${P.pop}, counted as losses`);
+ const sp=A.spawnUnit('spearman',K.x+3,K.y+3,0),ar=A.spawnUnit('archer',K.x+3.5,K.y+3,0);A.applyCmd(0,{t:'garrison',ids:[sp.id,ar.id],bid:K.id});run(4);
+ ok(sp.inG===K&&K.gar.length>=2,'two units garrisoned');const g0=K.gar.length;A.applyCmd(0,{t:'kill',ids:[sp.id]});
+ ok(sp.dead&&!K.gar.includes(sp)&&K.gar.length===g0-1,'killing a garrisoned unit frees its garrison slot');
+ const kn=A.spawnUnit('knight',K.x+5,K.y+5,0),cat=A.spawnUnit('catapult',K.x+6,K.y+5,0),en=A.spawnUnit('knight',K.x+7,K.y+5,1);
+ A.applyCmd(0,{t:'kill',ids:[kn.id,cat.id,en.id,K.id]});ok(kn.dead&&cat.dead&&!en.dead&&!K.dead,'any own unit type can be deleted; enemy units and buildings in the list are ignored');}
+
+console.log('--- unfinished sites give no vision');
+{A.setupGame(4321,[{human:true}],'normal',true);g=A.get();const K=g.players[0].keep,M=g.MAP;
+ // a site far from every own unit/building (towards the map centre)
+ const tx=Math.floor(M/2),ty=Math.floor(M/2);const near=g.units.concat(g.blds).filter(e=>e.owner===0&&Math.hypot(e.x-tx,e.y-ty)<20);
+ const T=A.spawnBld('tower',tx,ty,0,false);let V=A.updateVisFor(0);const at=(x,y)=>V[y*M+x];
+ const ring=[[tx+3,ty],[tx-3,ty],[tx,ty+3],[tx,ty-3],[tx+5,ty+2]];
+ ok(near.length===0&&at(tx,ty)===2&&ring.every(([x,y])=>at(x,y)===0),'unfinished site far away: only its own tile is visible to the owner, nothing beyond');
+ const F=A.spawnBld('fortress',tx+10,ty,0,false);V=A.updateVisFor(0);ok(at(tx+11,ty+1)===2&&at(tx+15,ty+1)===0&&at(tx+10,ty+5)===0,'unfinished 3x3 site: footprint visible, surroundings stay fogged');
+ T.built=true;T.prog=1;V=A.updateVisFor(0);ok(ring.every(([x,y])=>at(x,y)===2),'once built, the tower reveals its sight radius immediately');
+ T.dead=true;F.dead=true;V=A.updateVisFor(0);ok(at(tx+3,ty)===1,'after it is gone the area is remembered (explored), not live');
+ const S=A.spawnBld('house',tx-20,ty+4,0,false);const pz=A.spawnUnit('peasant',tx-21,ty+4.5,0);V=A.updateVisFor(0);
+ ok(at(tx-26,ty+4)===2&&at(tx-21+7,ty+4)===0,'a peasant building a site still sees with its own sight (6), the site adds nothing');}
 
 console.log('--- map sizes');
 for(const [sz,M] of [['small',96],['medium',144],['large',192]]){A.setupGame(77,[{human:true}],'normal',true,sz);g=A.get();

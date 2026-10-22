@@ -12,9 +12,13 @@ const fogCan=document.createElement('canvas'),fogCtx=fogCan.getContext('2d');let
 const hexRGB=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
 function groundLayer(){if(groundFor!==gcls||groundCan.width!==MAP){groundCan.width=groundCan.height=MAP;const im=groundCtx.createImageData(MAP,MAP),d=im.data,C=GCOL.map(hexRGB);
   for(let i=0;i<MAP*MAP;i++){const c=C[gcls[i]];d[i*4]=c[0];d[i*4+1]=c[1];d[i*4+2]=c[2];d[i*4+3]=255;}groundCtx.putImageData(im,0,0);groundFor=gcls;}return groundCan;}
-function fogLayer(){const N=MAP+2;   // 1-tile opaque border so the antialiased map edge of the ground image stays covered
- if(fogCan.width!==N||!fogImg){fogCan.width=fogCan.height=N;fogImg=fogCtx.createImageData(N,N);const d=fogImg.data;for(let o=0;o<d.length;o+=4){d[o]=11;d[o+1]=13;d[o+2]=16;d[o+3]=255;}}const d=fogImg.data;
- for(let y=0;y<MAP;y++)for(let x=0;x<MAP;x++){const v=vis[y*MAP+x],o=((y+1)*N+x+1)*4;if(v===0){d[o]=11;d[o+1]=13;d[o+2]=16;d[o+3]=255;}else if(v===1){d[o]=8;d[o+1]=10;d[o+2]=14;d[o+3]=128;}else d[o+3]=0;}
+// The fog image has a 1-tile border so the antialiased map edge of the ground image stays covered where the edge is fogged.
+// The border copies the fog of the edge tile next to it: an opaque border in front of a VISIBLE edge used to hide the upper
+// part of buildings standing on the upper-right (y=0) and upper-left (x=0) edges, because they are drawn up into that band.
+function fogLayer(){const N=MAP+2;
+ if(fogCan.width!==N||!fogImg){fogCan.width=fogCan.height=N;fogImg=fogCtx.createImageData(N,N);}const d=fogImg.data;
+ for(let py=0;py<N;py++)for(let px=0;px<N;px++){const x=px<1?0:px>MAP?MAP-1:px-1,y=py<1?0:py>MAP?MAP-1:py-1;const v=vis[y*MAP+x],o=(py*N+px)*4;
+  if(v===0){d[o]=11;d[o+1]=13;d[o+2]=16;d[o+3]=255;}else if(v===1){d[o]=8;d[o+1]=10;d[o+2]=14;d[o+3]=128;}else{d[o]=0;d[o+1]=0;d[o+2]=0;d[o+3]=0;}}
  fogCtx.putImageData(fogImg,0,0);return fogCan;}
 function drawTileLayer(can,off=0){ctx.save();ctx.transform(32,16,-32,16,0,0);ctx.imageSmoothingEnabled=false;ctx.drawImage(can,-off,-off);ctx.restore();}
 let renderStats={tiles:0,units:0};
