@@ -133,7 +133,7 @@ function drawHelp(){uiBtns=[];tip=null;const [x,y]=overlayPanel(Math.min(W-40,90
  ['Counters','Spearmen beat knights. Knights crush archers & catapults. Archers shred infantry. Catapults demolish walls and buildings. Towers, Keeps and Fortresses shoot arrows.'],
  ['Rivals','Ravenmoor is aggressive and attacks early. Eldmark builds a big economy and strikes late with large armies. Stonehold walls itself in with towers. Rivals also fight each other.'],
  ['Chat','Multiplayer only (lobby and matches): Enter opens the chat box, Enter sends to everyone, Esc cancels. While typing, game hotkeys are off. Mouse wheel over the open chat (or PgUp/PgDn) scrolls the history; recent messages fade after 10 s. There are no teams or alliances, so all chat goes to every player.'],
- ['Other','P / Esc pauses (restart from the pause menu). F toggles fog of war. H toggles this help. F3 shows the network status in multiplayer (ping, last server update, reconnects). M mutes sound; volume sliders are under the Sound button (top bar) and in the pause menu.']];
+ ['Other','P / Esc pauses (restart or surrender from the pause menu). F toggles fog of war. H toggles this help. F3 shows the network status in multiplayer (ping, last server update, reconnects). M mutes sound; volume sliders are under the Sound button (top bar) and in the pause menu.']];
  text('How to Play',W/2,y+40,'#ffe7a8','bold 26px Georgia, serif','center');const PHh=Math.min(H-40,720),mw=Math.min(W-40,900)-170;
  // wrap every row, then pick the largest font (13 -> 10 px) that fits above the Continue button
  const wrap=(t,f)=>{ctx.font=f;const out=[];let line='';for(const w2 of t.split(' ')){if(line&&ctx.measureText(line+w2).width>mw){out.push(line);line='';}line+=w2+' ';}out.push(line);return out;};

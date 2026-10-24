@@ -4,7 +4,7 @@
 <style>html,body{margin:0;height:100%;overflow:hidden;background:#0b0d10}canvas{display:block;cursor:default}</style></head>
 <body><canvas id="c"></canvas>
 <script>
-const APP_VERSION='1.3.3';
+const APP_VERSION='1.3.4';
 /*SIM-BEGIN*/
 'use strict';
 // ===== The Lowlands — single-file RTS =====
@@ -1183,7 +1183,7 @@ function drawHelp(){uiBtns=[];tip=null;const [x,y]=overlayPanel(Math.min(W-40,90
  ['Counters','Spearmen beat knights. Knights crush archers & catapults. Archers shred infantry. Catapults demolish walls and buildings. Towers, Keeps and Fortresses shoot arrows.'],
  ['Rivals','Ravenmoor is aggressive and attacks early. Eldmark builds a big economy and strikes late with large armies. Stonehold walls itself in with towers. Rivals also fight each other.'],
  ['Chat','Multiplayer only (lobby and matches): Enter opens the chat box, Enter sends to everyone, Esc cancels. While typing, game hotkeys are off. Mouse wheel over the open chat (or PgUp/PgDn) scrolls the history; recent messages fade after 10 s. There are no teams or alliances, so all chat goes to every player.'],
- ['Other','P / Esc pauses (restart from the pause menu). F toggles fog of war. H toggles this help. F3 shows the network status in multiplayer (ping, last server update, reconnects). M mutes sound; volume sliders are under the Sound button (top bar) and in the pause menu.']];
+ ['Other','P / Esc pauses (restart or surrender from the pause menu). F toggles fog of war. H toggles this help. F3 shows the network status in multiplayer (ping, last server update, reconnects). M mutes sound; volume sliders are under the Sound button (top bar) and in the pause menu.']];
  text('How to Play',W/2,y+40,'#ffe7a8','bold 26px Georgia, serif','center');const PHh=Math.min(H-40,720),mw=Math.min(W-40,900)-170;
  // wrap every row, then pick the largest font (13 -> 10 px) that fits above the Continue button
  const wrap=(t,f)=>{ctx.font=f;const out=[];let line='';for(const w2 of t.split(' ')){if(line&&ctx.measureText(line+w2).width>mw){out.push(line);line='';}line+=w2+' ';}out.push(line);return out;};
@@ -1708,13 +1708,15 @@ function drawLobby(){uiBtns=[];tip=null;const [x,y]=overlayPanel(640,560);
  else text(`Waiting for the host to start…  (AI: ${DIFF[lobby.diff].label}, fog ${lobby.fog?'on':'off'}, map ${(MAPSIZES[lobby.size]||MAPSIZES.small).label})`,W/2,y+400,'#cdbb90','14px Georgia, serif','center');
  text('Others join by opening this same address ('+(location.host?location.protocol+'//'+location.host:'http://<server>:8080')+') and clicking Join LAN. Empty slots are played by the AI.',W/2,y+480,'#998','12px Georgia, serif','center');
  smallBtn(x+270,y+510,100,26,'Back',()=>{state='menu';},{t:'Return to main menu'});}
-function drawPause(){uiBtns=[];tip=null;const net=mode==='net';const host=net&&lobby&&lobby.host===myCid;const [x,y]=overlayPanel(360,300);
+function drawPause(){uiBtns=[];tip=null;const net=mode==='net';const host=net&&lobby&&lobby.host===myCid;const [x,y]=overlayPanel(360,350);
  text(net?'Game Menu':'Paused',W/2,y+44,'#ffe7a8','bold 28px Georgia, serif','center');if(net)text('(multiplayer keeps running)',W/2,y+66,'#aa9','12px Georgia, serif','center');
  bigBtn(x+60,y+80,240,'Resume',()=>{state='play';},true);bigBtn(x+60,y+128,240,'Help',()=>{state='play';showHelp=true;});
- if(!net){bigBtn(x+60,y+176,240,'Restart',()=>{newGame();});bigBtn(x+60,y+224,240,'Main Menu',()=>{state='menu';previewMap();});}
- else if(host)bigBtn(x+60,y+176,240,'End game → lobby (all)',()=>netSend({t:'tolobby'}));
- else bigBtn(x+60,y+176,240,'Surrender',()=>{if(confirm('Surrender your kingdom?'))netSend({t:'surrender'});});
- AU.panel(W/2-130,Math.min(H-134,y+310));}
+ const me0=players[me],canYield=me0&&!me0.surrendered;
+ const yieldBtn=yy=>bigBtn(x+60,yy,240,'Surrender',()=>{if(!canYield||!confirm('Surrender your kingdom? Your realm falls and the game is lost.'))return;if(net)netSend({t:'surrender'});else{surrender(me0,me0.lastAttackedBy>=0?me0.lastAttackedBy:-1,'yield');}state='play';});
+ if(!net){bigBtn(x+60,y+176,240,'Restart',()=>{newGame();});bigBtn(x+60,y+224,240,'Main Menu',()=>{state='menu';previewMap();});yieldBtn(y+272);}
+ else if(host){bigBtn(x+60,y+176,240,'End game → lobby (all)',()=>netSend({t:'tolobby'}));yieldBtn(y+224);}
+ else yieldBtn(y+176);
+ AU.panel(W/2-130,Math.min(H-134,y+360));}
 function drawEnd(){uiBtns=[];tip=null;const won=state==='won';const [x,y]=overlayPanel(500,330);
  text(won?'VICTORY':'DEFEAT',W/2,y+60,won?'#ffe070':'#ff7a6a','bold 44px Georgia, serif','center');
  text(won?`All rival kingdoms have bowed before ${players[me].short}!`:`Your kingdom has fallen. ${players[me].short} is no more.`,W/2,y+96,'#ddd','15px Georgia, serif','center');

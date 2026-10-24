@@ -112,6 +112,9 @@ async function trackDrawn(pg,ms,order){return pg.evaluate(async(ms,order)=>{cons
   const bad=r.res.filter(x=>x.diff>0||x.ink<300);
   ok(bad.length===0,'buildings on every map edge and corner are drawn completely in a fully visible area (fog on = fog off) '+JSON.stringify(bad.length?bad:r.res.map(x=>x.n+':'+x.diff)));
   ok(r.opaque===await p.evaluate(()=>MAP+2),'the fog border still covers unexplored map edges');}
+  {const sr=await p.evaluate(()=>{newGame();showHelp=false;state='paused';const labs=[];const ob=bigBtn;bigBtn=function(x,y,w,label,on){labs.push([label,on]);return ob.apply(this,arguments);};try{drawPause();}finally{bigBtn=ob;}
+    const s=labs.find(l=>l[0]==='Surrender');if(!s)return {labs:labs.map(l=>l[0])};const oc=window.confirm;window.confirm=()=>true;s[1]();window.confirm=oc;checkOutcome();return {labs:labs.map(l=>l[0]),sur:players[me].surrendered,st:state};});
+  ok(sr.sur&&sr.st==='lost','solo: the pause menu has a Surrender button and it ends the game as a defeat '+JSON.stringify(sr));}
  // ---- page served by a plain static web server (like a Synology web folder): multiplayer explained, no endless "connecting"
  {const http=require('http'),fs=require('fs');const st=http.createServer((q,r)=>{r.writeHead(200,{'Content-Type':'text/html'});r.end(fs.readFileSync(path.join(__dirname,'..','index.html')));}).listen(8134);
   const q=await page('static');q.on('console',()=>{});await q.goto('http://127.0.0.1:8134/');
