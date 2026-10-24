@@ -36,8 +36,8 @@ function selSound(){const e=sel[0];if(!e)return;if(e.kind==='bld')AU.play('sel_b
 function clickSelect(sx,sy,add){const e=pickAt(sx,sy);const now=performance.now();
  if(!e){if(!add)sel=[];return;}const prevSel=sel.slice();setTimeout(()=>{if(sel.length&&(sel.length!==prevSel.length||sel.some((x,i)=>x!==prevSel[i])))selSound();},0);
  if(e.kind==='unit'&&e.owner===me&&now-lastClick.t<350&&lastClick.type===e.type){sel=units.filter(u=>u.owner===me&&!u.inG&&u.type===e.type&&onScreen(u.x,u.y,0));lastClick.t=0;return;}
- lastClick={t:now,type:e.kind==='unit'?e.type:e.owner===me?'b:'+e.type:null};
  if(e.kind==='bld'&&e.owner===me&&now-lastClick.t<350&&lastClick.type==='b:'+e.type){sel=blds.filter(b=>!b.dead&&b.owner===me&&b.type===e.type&&onScreen(b.x,b.y,0));lastClick.t=0;return;}
+ lastClick={t:now,type:e.kind==='unit'?e.type:e.owner===me?'b:'+e.type:null};
  if(add&&e.kind==='bld'&&e.owner===me&&sel.length&&sel.every(x=>x.kind==='bld'&&x.owner===me)){lastClick={t:now,type:'b:'+e.type};const i=sel.indexOf(e);if(i>=0)sel.splice(i,1);else sel.push(e);return;}
  if(add&&e.kind==='unit'&&e.owner===me){sel=sel.filter(x=>x.kind==='unit');const i=sel.indexOf(e);if(i>=0)sel.splice(i,1);else sel.push(e);}else sel=[e];}
 // Delete / Backspace: selected own units are killed (no refund); unfinished sites are cancelled (full refund), finished own buildings and walls are demolished

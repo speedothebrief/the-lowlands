@@ -155,6 +155,9 @@ async function trackDrawn(pg,ms,order){return pg.evaluate(async(ms,order)=>{cons
   ok(!cl.open&&cl.state==='play'&&!cl.focus,'chat: Esc closes the chat box without pausing the game');
   const n0=await a.evaluate(()=>chatLog.length);await sleep(300);ok(await a.evaluate(n0=>chatLog.length===n0,n0),'chat: Esc does not send the draft');
   await b.keyboard.press('b');await sleep(80);ok(await b.evaluate(()=>buildMenuOpen),'hotkeys work again after closing chat');
+  // one click on an own building selects only that building (it used to count as a double-click and grab every one of that type on screen)
+  const cs=await a.evaluate(()=>{const e=blds.find(x=>x.owner===me&&!x.dead);const op=pickAt;pickAt=()=>e;lastClick={t:0,type:null};clickSelect(0,0,false);const one=sel.slice();clickSelect(0,0,false);const two=sel.slice();pickAt=op;sel=[];return {one:one.length,oneIs:one[0]===e,two:two.length};});
+  ok(cs.one===1&&cs.oneIs&&cs.two>=1,'single click on your building selects just that building; double-click still selects the type '+JSON.stringify(cs));
   // Delete: never while typing in chat; outside chat it kills the selected own units (server-authoritative)
   await b.keyboard.press('Escape');await b.evaluate(()=>{buildMenuOpen=false;});const vid=await b.evaluate(()=>{const u=units.find(v=>v.owner===me&&v.type==='peasant'&&!v.dead&&!v.inG);sel=[u];return u.id;});
   await b.evaluate(()=>{window.__cmds=[];const o=netSend;window.__ns=o;netSend=m=>{if(m&&m.t==='cmd')__cmds.push(m.c.t);return o(m);};});
