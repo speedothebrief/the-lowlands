@@ -48,7 +48,7 @@ const GAR_T=['peasant','spearman','archer'];const canGar=u=>GAR_T.includes(u.typ
 const AGES=['Early Age','Middle Ages','Modern Age'];
 const MODERN={
  archer:{name:'Machine Gunner',proj:'bullet',desc:'Modern ranged infantry: rapid bullets. Good vs infantry, weak vs tanks.'},
- knight:{name:'Tank',desc:'Modern armor: fast, heavily armored. Crushes gunners & artillery.'},
+ knight:{name:'Tank',range:8,sight:10,proj:'tshell',desc:'Modern armor: fires shells out to 8 tiles (sees 10). Fast, heavily armored. Crushes gunners & artillery.'},
  spearman:{name:'Infantry',range:3,proj:'bullet',desc:'Modern riflemen: fire 3 tiles. x3 damage vs tanks.'},
  trebuchet:{name:'Howitzer',desc:'Modern artillery: range 12 (min 3.5), heavy shells. Smashes buildings.'},
 };

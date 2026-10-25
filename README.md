@@ -444,7 +444,8 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
   train **trebuchets** (range 12, min range 3.5, heavy splash vs buildings, slow) and **siege rams** (tough, 5× damage
   to buildings, nearly harmless to units). Archers get +3 range. Spearmen and knights get +20% health (existing ones too).
 - **Middle Ages → Modern Age.** Build a **Research Lab** (B, R; 10,000 of every resource, 140 s, locked until the
-  Middle Ages). Archers become **Machine Gunners**, knights **Tanks**, spearmen **Infantry** (shoot from 3 tiles), and
+  Middle Ages). Archers become **Machine Gunners**, knights **Tanks** (since v1.4.2 they fire shells from 8 tiles and see 10;
+  still x1.6 vs ranged and x1.5 vs siege), spearmen **Infantry** (shoot from 3 tiles), and
   trebuchets **Howitzers**. All four get +20% speed, +25% health and +50% damage, stacked on the Middle Ages bonuses.
 - **Unit costs double with each age** after the age a unit first appears in (peasant 50 → 100 → 200 food). Units already
   queued keep the price paid, and cancelling refunds that price.

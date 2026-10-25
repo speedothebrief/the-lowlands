@@ -219,7 +219,7 @@ function applySnap(s){const now=performance.now();SNAP_DT=clamp(NS.snapIv/1000,1
  blds=blds.filter(b=>{if(seen.has(b.id))return true;b.dead=true;cmap.delete(b.id);mmDirty=true;return false;});
  bgrid.fill(null);for(const b of blds)for(let y=b.ty;y<b.ty+b.h;y++)for(let x=b.tx;x<b.tx+b.w;x++)bgrid[y*MAP+x]=b;passGen++;
  nukeFx=(s.N||[]).map(a=>({sx:a[0],sy:a[1],tx:a[2],ty:a[3],t0:a[4],dur:a[5],owner:a[6],boomT:a[7],sat:a[8]||0}));
- projs=s.J.map(a=>({k:a[0]===2?'bullet':a[0]?'stone':'arrow',shell:a[0]===3,sx:a[1],sy:a[2],tx:a[3],ty:a[4],life:a[5],dur:a[6],sz:a[7]||undefined}));
+ projs=s.J.map(a=>({k:a[0]===2?'bullet':a[0]===4?'tshell':a[0]?'stone':'arrow',shell:a[0]===3,sx:a[1],sy:a[2],tx:a[3],ty:a[4],life:a[5],dur:a[6],sz:a[7]||undefined}));
  for(const i of s.R){resT[i]=0;mmDirty=true;}
  for(const a of s.F)parts.push({x:a[0],y:a[1],z:a[2],vx:a[3],vy:a[4],vz:a[5],life:a[6],max:Math.max(a[6],.3),c:a[7],s:a[8],smoke:!!a[9]});
  for(const a of s.D)decals.push(a[0]===0?{k:'rubble',x:a[1],y:a[2],w:a[3],h:a[4],t:a[5]}:{k:'corpse',x:a[1],y:a[2],c:a[3],t:a[4]});

@@ -6,8 +6,8 @@ const fs=require('fs'),vm=require('vm'),path=require('path');
 const html=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
 const src=html.slice(html.indexOf('/*SIM-BEGIN*/'),html.indexOf('/*SIM-END*/'));
 const c=vm.createContext({console});
-vm.runInContext(src+';globalThis.API={POP_MAX,fortBldTarget,updateVisFor,setupGame,sim,applyCmd,nearestRes,spawnUnit,spawnBld,killEnt,makeSnap,canPlace,repairCost,RT,BLD,UNITS,STEP,RES_AMT,US,AGES,NUKE,SAT,get:()=>({units,blds,players,claim,resT,resA,projs,MAP,STARTS,time,nukeFx})};',c);
-const A=c.API;let fails=0;const ok=(v,m)=>{console.log((v?'PASS ':'FAIL ')+m);if(!v)fails++;};
+vm.runInContext(src+';globalThis.API={POP_MAX,fortBldTarget,updateVisFor,setupGame,sim,applyCmd,nearestRes,spawnUnit,spawnBld,killEnt,makeSnap,canPlace,repairCost,RT,BLD,UNITS,STEP,RES_AMT,US,AGES,NUKE,SAT,AGE_UNITS,get:()=>({units,blds,players,claim,resT,resA,projs,MAP,STARTS,time,nukeFx})};',c);
+const A=c.API;const close2=(a,b)=>Math.abs(a-b)<1e-9;let fails=0;const ok=(v,m)=>{console.log((v?'PASS ':'FAIL ')+m);if(!v)fails++;};
 const run=sec=>{for(let s=0;s<Math.round(sec*30);s++)A.sim(A.STEP);};
 const my=(pid,ty)=>A.get().units.filter(u=>u.owner===pid&&(!ty||u.type===ty));
 
@@ -344,6 +344,27 @@ const finish=b=>{b.prog=1;run(.1);};
  const inf=A.spawnUnit('spearman',c,c,0),foe=A.spawnUnit('spearman',c+2.6,c,1);foe.hp=foe.maxhp=1e5;foe.state='hold';inf.state='hold';
  A.applyCmd(0,{t:'attack',ids:[inf.id],tid:foe.id});const fh=foe.hp,x0=inf.x;let shot=false;for(let s=0;s<90;s++){A.sim(A.STEP);if(g2.projs.some(p=>p.k==='bullet'&&p.owner===0))shot=true;}
  ok(shot&&foe.hp<fh&&Math.abs(inf.x-x0)<.3,`Infantry shoots bullets at a target 2.6 tiles away without closing in (${(fh-foe.hp).toFixed(0)} damage in 3 s)`);}
+console.log('--- Tanks fire shells from 8 tiles (v1.4.2)');
+{const U=t=>A.AGE_UNITS[t];
+ ok(U(2).knight.range===8&&U(2).knight.proj==='tshell'&&U(2).knight.sight>=9,`Modern Age Tank: range 8, shell projectile, sight ${U(2).knight.sight} (>=9)`);
+ ok(U(0).knight.range<1&&U(1).knight.range<1&&!U(0).knight.proj&&!U(1).knight.proj&&U(0).knight.sight===8,'Early Age and Middle Ages knights stay melee (range 0.8, no projectile, sight 8)');
+ ok(close2(U(2).knight.atk,19.5)&&U(2).knight.hp===255&&close2(U(2).knight.speed,2.7*1.2),'Tank keeps its other modern stats (atk 19.5, hp 255, speed x1.2)');}
+const tankDuel=(age,cmd,D0=7)=>{A.setupGame(7373,[{human:true}],'normal',false);const g2=A.get(),P=g2.players[0];P.age=age;const c=g2.MAP/2;
+ const tk=A.spawnUnit('knight',c,c,0),foe=A.spawnUnit('spearman',c+D0,c,1);foe.hp=foe.maxhp=1e5;foe.state='hold';
+ if(cmd==='attack')A.applyCmd(0,{t:'attack',ids:[tk.id],tid:foe.id});else A.applyCmd(0,{t:'move',ids:[tk.id],x:c+D0+9,y:c,am:true});
+ const fh=foe.hp,x0=tk.x;let shot=false,minD=1e9;for(let s=0;s<(D0>7?240:120);s++){A.sim(A.STEP);if(A.get().projs.some(p=>p.k==='tshell'&&p.owner===0))shot=true;minD=Math.min(minD,Math.hypot(tk.x-foe.x,tk.y-foe.y));}
+ return{shot,dmg:fh-foe.hp,moved:Math.abs(tk.x-x0),minD,snap:A.makeSnap()};};
+{const r=tankDuel(2,'attack');ok(r.shot&&r.dmg>0&&r.moved<.3,`Tank shells a target 7 tiles away without closing in (${r.dmg.toFixed(0)} damage in 4 s, moved ${r.moved.toFixed(2)})`);
+ const r2=tankDuel(2,'amove',14);ok(r2.shot&&r2.dmg>0&&r2.minD>7,`attack-moving Tank from 14 tiles away stops and fires from range (closest ${r2.minD.toFixed(1)} tiles, ${r2.dmg.toFixed(0)} damage)`);
+ const r1=tankDuel(1,'attack');ok(!r1.shot&&r1.minD<1.6&&r1.dmg>0,`Middle Ages knight still charges into melee (closest ${r1.minD.toFixed(1)} tiles, no shells)`);
+ const r0=tankDuel(0,'attack');ok(!r0.shot&&r0.minD<1.6,'Early Age knight is melee too');}
+{A.setupGame(7474,[{human:true}],'normal',false);const g2=A.get(),P=g2.players[0];P.age=2;const c=g2.MAP/2;const tk=A.spawnUnit('knight',c,c,0),foe=A.spawnUnit('spearman',c+5,c,1);foe.hp=foe.maxhp=1e5;foe.state='hold';
+ A.applyCmd(0,{t:'attack',ids:[tk.id],tid:foe.id});let sn=null;for(let s=0;s<60&&!sn;s++){A.sim(A.STEP);if(A.get().projs.some(p=>p.k==="tshell"))sn=A.makeSnap();}
+ ok(sn&&sn.J.some(j=>j[0]===4),'tank shells travel in the multiplayer snapshot (projectile kind 4)');}
+{const dmgTo=(atk,def,age)=>{A.setupGame(7575,[{human:true}],'normal',false);const g2=A.get();g2.players[0].age=age;const c=g2.MAP/2;const tk=A.spawnUnit(atk,c,c,0),v=A.spawnUnit(def,c+(age===2?6:.9),c,1);v.hp=v.maxhp=1e5;v.state='hold';
+  A.applyCmd(0,{t:'attack',ids:[tk.id],tid:v.id});for(let s=0;s<180;s++)A.sim(A.STEP);return 1e5-v.hp;};
+ const vA=dmgTo('knight','archer',2),vS=dmgTo('knight','spearman',2),vC=dmgTo('knight','catapult',2);
+ ok(vA>vS*1.4&&vC>vS*1.2,`Tank still crushes ranged units and siege (6 s: archer ${vA.toFixed(0)}, catapult ${vC.toFixed(0)}, spearman ${vS.toFixed(0)})`);}
 console.log('--- nuclear bomb');
 {A.setupGame(5151,[{human:true}],'normal',true);g=A.get();const P=g.players[0],K=P.keep;P.age=2;
  const L=A.spawnBld('lab',K.tx+8,K.ty-2,0,true);P.res=RICH(9999);A.applyCmd(0,{t:'buildnuke',bid:L.id});ok(!L.nukeQ,'cannot build a nuke with 9999 of each');

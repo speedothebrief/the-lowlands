@@ -62,12 +62,14 @@ function killEnt(e,by){
 function attack(u,t){const D=uD(u);const d=distTo(u,t);
  if(D.proj==='arrow'){sfx('bow',u.x,u.y,u.owner);projs.push({k:'arrow',sx:u.x,sy:u.y,t,tx:t.x,ty:t.y,life:0,dur:Math.max(.15,d/13),dmg:D.atk,owner:u.owner,atype:u.type,att:u});}
  else if(D.proj==='bullet'){sfx('gun',u.x,u.y,u.owner);u.swingT=time;projs.push({k:'bullet',sx:u.x,sy:u.y,t,tx:t.x,ty:t.y,life:0,dur:Math.max(.08,d/30),dmg:D.atk,owner:u.owner,atype:u.type,att:u});}
+ else if(D.proj==='tshell'){sfx('gun',u.x,u.y,u.owner,1);u.swingT=time;projs.push({k:'tshell',sx:u.x,sy:u.y,t,tx:t.x,ty:t.y,life:0,dur:Math.max(.12,d/18),dmg:D.atk,owner:u.owner,atype:u.type,att:u});}   // Modern Age tank: direct-fire shell, muzzle flash on the sprite
  else if(D.proj==='stone'){const tp=t.kind==='unit'?{x:t.x,y:t.y}:{x:t.x,y:t.y};projs.push({k:'stone',sx:u.x,sy:u.y,tx:tp.x+rr(-.3,.3),ty:tp.y+rr(-.3,.3),life:0,dur:Math.max(.5,d/7),dmg:D.atk,owner:u.owner,atype:u.type,att:u,splash:D.splash,shell:!!D.modern});u.fireT=time;sfx(D.modern?'gun':'launch',u.x,u.y,u.owner,D.modern?1:0);}
  else{if(D.modern){sfx('gun',t.x,t.y,u.owner,1);}else sfx('hit',t.x,t.y,u.owner,u.type==='knight'?1:u.type==='peasant'||u.type==='ram'?2:0);dealDamage(u,t,D.atk,u.type,u.owner);u.swingT=time;}}
 function updateProjs(dt){
  for(const p of projs){p.life+=dt;if(p.t&&!p.t.dead){p.tx=p.t.x;p.ty=p.t.y;}
   if(p.life>=p.dur){p.done=true;
-   if(p.k==='arrow'||p.k==='bullet'){if(p.t&&!p.t.dead&&p.k==='arrow')sfx('thk',p.tx,p.ty,p.owner,p.t.kind==='bld'?1:0);if(p.t&&!p.t.dead)dealDamage(p.att&&!p.att.dead?p.att:null,p.t,p.dmg,p.atype,p.owner);}
+   if(p.k==='tshell'){for(let i=0;i<5;i++)parts.push({x:p.tx,y:p.ty,z:4,vx:rr(-1,1),vy:rr(-1,1),vz:rr(6,20),life:.45,max:.45,c:i<2?'#ffb040':'#6a6258',s:2});if(p.t&&!p.t.dead)dealDamage(p.att&&!p.att.dead?p.att:null,p.t,p.dmg,p.atype,p.owner);}
+   else if(p.k==='arrow'||p.k==='bullet'){if(p.t&&!p.t.dead&&p.k==='arrow')sfx('thk',p.tx,p.ty,p.owner,p.t.kind==='bld'?1:0);if(p.t&&!p.t.dead)dealDamage(p.att&&!p.att.dead?p.att:null,p.t,p.dmg,p.atype,p.owner);}
    else{sfx('boom',p.tx,p.ty,p.owner);for(let i=0;i<10;i++)parts.push({x:p.tx,y:p.ty,z:2,vx:rr(-1.5,1.5),vy:rr(-1.5,1.5),vz:rr(10,35),life:.8,max:.8,c:'#8a7a60',s:2.5});
     const hit=[];queryUnits(p.tx,p.ty,p.splash+1,v=>{if(!v.dead&&isEnemy(p.owner,v.owner)&&dist(v.x,v.y,p.tx,p.ty)<=p.splash)hit.push(v);});
     const bx=Math.floor(p.tx),by=Math.floor(p.ty);const bs=new Set();for(let y=by-1;y<=by+1;y++)for(let x=bx-1;x<=bx+1;x++){if(!inb(x,y))continue;const b=bgrid[y*MAP+x];if(b&&isEnemy(p.owner,b.owner)&&distTo({x:p.tx,y:p.ty},b)<=p.splash*.6)bs.add(b);}

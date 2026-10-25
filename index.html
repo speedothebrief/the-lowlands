@@ -4,7 +4,7 @@
 <style>html,body{margin:0;height:100%;overflow:hidden;background:#0b0d10}canvas{display:block;cursor:default}</style></head>
 <body><canvas id="c"></canvas>
 <script>
-const APP_VERSION='1.4.1';
+const APP_VERSION='1.4.2';
 /*SIM-BEGIN*/
 'use strict';
 // ===== The Lowlands — single-file RTS =====
@@ -56,7 +56,7 @@ const GAR_T=['peasant','spearman','archer'];const canGar=u=>GAR_T.includes(u.typ
 const AGES=['Early Age','Middle Ages','Modern Age'];
 const MODERN={
  archer:{name:'Machine Gunner',proj:'bullet',desc:'Modern ranged infantry: rapid bullets. Good vs infantry, weak vs tanks.'},
- knight:{name:'Tank',desc:'Modern armor: fast, heavily armored. Crushes gunners & artillery.'},
+ knight:{name:'Tank',range:8,sight:10,proj:'tshell',desc:'Modern armor: fires shells out to 8 tiles (sees 10). Fast, heavily armored. Crushes gunners & artillery.'},
  spearman:{name:'Infantry',range:3,proj:'bullet',desc:'Modern riflemen: fire 3 tiles. x3 damage vs tanks.'},
  trebuchet:{name:'Howitzer',desc:'Modern artillery: range 12 (min 3.5), heavy shells. Smashes buildings.'},
 };
@@ -325,12 +325,14 @@ function killEnt(e,by){
 function attack(u,t){const D=uD(u);const d=distTo(u,t);
  if(D.proj==='arrow'){sfx('bow',u.x,u.y,u.owner);projs.push({k:'arrow',sx:u.x,sy:u.y,t,tx:t.x,ty:t.y,life:0,dur:Math.max(.15,d/13),dmg:D.atk,owner:u.owner,atype:u.type,att:u});}
  else if(D.proj==='bullet'){sfx('gun',u.x,u.y,u.owner);u.swingT=time;projs.push({k:'bullet',sx:u.x,sy:u.y,t,tx:t.x,ty:t.y,life:0,dur:Math.max(.08,d/30),dmg:D.atk,owner:u.owner,atype:u.type,att:u});}
+ else if(D.proj==='tshell'){sfx('gun',u.x,u.y,u.owner,1);u.swingT=time;projs.push({k:'tshell',sx:u.x,sy:u.y,t,tx:t.x,ty:t.y,life:0,dur:Math.max(.12,d/18),dmg:D.atk,owner:u.owner,atype:u.type,att:u});}   // Modern Age tank: direct-fire shell, muzzle flash on the sprite
  else if(D.proj==='stone'){const tp=t.kind==='unit'?{x:t.x,y:t.y}:{x:t.x,y:t.y};projs.push({k:'stone',sx:u.x,sy:u.y,tx:tp.x+rr(-.3,.3),ty:tp.y+rr(-.3,.3),life:0,dur:Math.max(.5,d/7),dmg:D.atk,owner:u.owner,atype:u.type,att:u,splash:D.splash,shell:!!D.modern});u.fireT=time;sfx(D.modern?'gun':'launch',u.x,u.y,u.owner,D.modern?1:0);}
  else{if(D.modern){sfx('gun',t.x,t.y,u.owner,1);}else sfx('hit',t.x,t.y,u.owner,u.type==='knight'?1:u.type==='peasant'||u.type==='ram'?2:0);dealDamage(u,t,D.atk,u.type,u.owner);u.swingT=time;}}
 function updateProjs(dt){
  for(const p of projs){p.life+=dt;if(p.t&&!p.t.dead){p.tx=p.t.x;p.ty=p.t.y;}
   if(p.life>=p.dur){p.done=true;
-   if(p.k==='arrow'||p.k==='bullet'){if(p.t&&!p.t.dead&&p.k==='arrow')sfx('thk',p.tx,p.ty,p.owner,p.t.kind==='bld'?1:0);if(p.t&&!p.t.dead)dealDamage(p.att&&!p.att.dead?p.att:null,p.t,p.dmg,p.atype,p.owner);}
+   if(p.k==='tshell'){for(let i=0;i<5;i++)parts.push({x:p.tx,y:p.ty,z:4,vx:rr(-1,1),vy:rr(-1,1),vz:rr(6,20),life:.45,max:.45,c:i<2?'#ffb040':'#6a6258',s:2});if(p.t&&!p.t.dead)dealDamage(p.att&&!p.att.dead?p.att:null,p.t,p.dmg,p.atype,p.owner);}
+   else if(p.k==='arrow'||p.k==='bullet'){if(p.t&&!p.t.dead&&p.k==='arrow')sfx('thk',p.tx,p.ty,p.owner,p.t.kind==='bld'?1:0);if(p.t&&!p.t.dead)dealDamage(p.att&&!p.att.dead?p.att:null,p.t,p.dmg,p.atype,p.owner);}
    else{sfx('boom',p.tx,p.ty,p.owner);for(let i=0;i<10;i++)parts.push({x:p.tx,y:p.ty,z:2,vx:rr(-1.5,1.5),vy:rr(-1.5,1.5),vz:rr(10,35),life:.8,max:.8,c:'#8a7a60',s:2.5});
     const hit=[];queryUnits(p.tx,p.ty,p.splash+1,v=>{if(!v.dead&&isEnemy(p.owner,v.owner)&&dist(v.x,v.y,p.tx,p.ty)<=p.splash)hit.push(v);});
     const bx=Math.floor(p.tx),by=Math.floor(p.ty);const bs=new Set();for(let y=by-1;y<=by+1;y++)for(let x=bx-1;x<=bx+1;x++){if(!inb(x,y))continue;const b=bgrid[y*MAP+x];if(b&&isEnemy(p.owner,b.owner)&&distTo({x:p.tx,y:p.ty},b)<=p.splash*.6)bs.add(b);}
@@ -971,7 +973,7 @@ function makeSnap(){
   P:players.map(p=>[Math.floor(p.res.food),Math.floor(p.res.wood),Math.floor(p.res.stone),Math.floor(p.res.gold),p.pop,p.popCap,p.surrendered?1:0,p.stats.trained,p.stats.killed,p.stats.lost,p.isHuman?1:0,p.bell?1:0,p.age||0,p.nukes||0,p.sat?1:0]),
   U:units.filter(u=>!u.dead&&!u.inG).map(u=>[u.id,UT.indexOf(u.type),u.owner,r2(u.x),r2(u.y),Math.ceil(u.hp),STN.indexOf(u.state),u.dir,(u.moving?1:0)|(u.working?2:0)|(u.amove?4:0),u.carry,u.carryT?RT[u.carryT]:0,u.swingT&&time-u.swingT<3?r2(u.swingT):0,u.fireT&&time-u.fireT<3?r2(u.fireT):0,(u.type==='catapult'||u.type==='trebuchet')?Math.round(u.cd*10)/10:0,u.job?(u.job.farm?4:RT[u.job.rt]):0]),
   B:blds.filter(b=>!b.dead).map(b=>[b.id,BT.indexOf(b.type),b.owner,b.tx,b.ty,Math.ceil(b.hp),b.built?1:0,r2(b.prog),b.queue.map(q=>UT.indexOf(q)),r2(b.trainT),b.blocked?1:0,b.rally?[r2(b.rally.x),r2(b.rally.y)]:0,b.type==='farm'?(farmFree(b),b.workers.length):0,b.gar&&b.gar.length?[b.gar.length,garArchers(b),b.gar.filter(u=>u.type==='peasant').length]:0,b.bc||0,b.repT&&time-b.repT<.5?1:0,b.nukeQ?r2(b.nukeT):-1,b.satQ?r2(b.satT):-1]),
-  J:projs.map(p=>[p.k==='arrow'?0:p.k==='bullet'?2:p.shell?3:1,r2(p.sx),r2(p.sy),r2(p.tx),r2(p.ty),r2(p.life),r2(p.dur),p.sz||0]),
+  J:projs.map(p=>[p.k==='arrow'?0:p.k==='bullet'?2:p.k==='tshell'?4:p.shell?3:1,r2(p.sx),r2(p.sy),r2(p.tx),r2(p.ty),r2(p.life),r2(p.dur),p.sz||0]),
   R:resEvents.splice(0),F,D,K:pings.splice(0).map(p=>[r2(p.x),r2(p.y),r2(p.t),p.o]),M:msgs.splice(0).map(m=>[m.t,m.c,m.to]),S:sfxEv.splice(0),N:nukeFx.map(f=>[r2(f.sx),r2(f.sy),r2(f.tx),r2(f.ty),r2(f.t0),r2(f.dur),f.owner,r2(f.boomT),f.sat?1:0])};}
 function mapData(){return{size:MAPSZ,tiles:Array.from(tiles),resT:Array.from(resT),resA:Array.from(resA,v=>Math.round(v))};}
 function playersMeta(){return players.map(p=>({name:p.name,short:p.short,color:p.color,pers:p.pers,isHuman:p.isHuman,pname:p.pname}));}
@@ -1225,6 +1227,7 @@ function renderWorld(menuMode){
  // projectiles
  for(const p of projs){const t=p.life/p.dur;const x=p.sx+(p.tx-p.sx)*t,y=p.sy+(p.ty-p.sy)*t;if(fog&&visAt(x,y)!==2)continue;const q=iso(x,y);
   if(p.k==='arrow'){const z=(p.sz||12)*(1-t)+8*t+Math.sin(Math.PI*t)*14;const q2=iso(p.sx+(p.tx-p.sx)*(t+.05),p.sy+(p.ty-p.sy)*(t+.05));const ang=Math.atan2(q2[1]-q[1]-(Math.cos(Math.PI*t)*-2),q2[0]-q[0]);ctx.strokeStyle='#2a1a0a';ctx.lineWidth=1.3;ctx.beginPath();ctx.moveTo(q[0]-Math.cos(ang)*5,q[1]-z-Math.sin(ang)*5);ctx.lineTo(q[0]+Math.cos(ang)*5,q[1]-z+Math.sin(ang)*5);ctx.stroke();ctx.lineWidth=1;}
+  else if(p.k==='tshell'){const q2=iso(p.sx+(p.tx-p.sx)*Math.max(0,t-.3),p.sy+(p.ty-p.sy)*Math.max(0,t-.3));ctx.strokeStyle='rgba(255,170,70,.6)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(q2[0],q2[1]-12);ctx.lineTo(q[0],q[1]-12);ctx.stroke();ctx.lineWidth=1;ctx.fillStyle='#2e302a';ctx.beginPath();ctx.ellipse(q[0],q[1]-12,3,1.8,0,0,7);ctx.fill();}
   else if(p.k==='bullet'){const q2=iso(p.sx+(p.tx-p.sx)*Math.max(0,t-.25),p.sy+(p.ty-p.sy)*Math.max(0,t-.25));ctx.strokeStyle='rgba(255,230,120,.95)';ctx.lineWidth=1.4;ctx.beginPath();ctx.moveTo(q2[0],q2[1]-10);ctx.lineTo(q[0],q[1]-10);ctx.stroke();ctx.lineWidth=1;}
   else{const z=10+Math.sin(Math.PI*t)*70;ctx.fillStyle='rgba(0,0,0,.25)';ctx.beginPath();ctx.ellipse(q[0],q[1],3,1.5,0,0,7);ctx.fill();if(p.shell){ctx.fillStyle='#3a3e36';ctx.beginPath();ctx.ellipse(q[0],q[1]-z,4,2,-.4,0,7);ctx.fill();ctx.fillStyle='rgba(255,200,90,.8)';ctx.fillRect(q[0]-6,q[1]-z,2,2);}else{ctx.fillStyle='#6a6660';ctx.beginPath();ctx.arc(q[0],q[1]-z,3.5,0,7);ctx.fill();}}}
  for(const q of parts){if(fog&&visAt(q.x,q.y)!==2)continue;const p=iso(q.x,q.y);ctx.globalAlpha=clamp(q.life/q.max,0,1)*(q.smoke?.5:1);ctx.fillStyle=q.c;const s=q.smoke?q.s*(2-q.life/q.max):q.s;ctx.fillRect(p[0]-s/2,p[1]-q.z-s/2,s,s);}ctx.globalAlpha=1;
@@ -1447,7 +1450,7 @@ function drawHelp(){uiBtns=[];tip=null;const [x,y]=overlayPanel(Math.min(W-40,90
  ['Gates','A Gate can be placed straight onto your own wall (green ghost): it replaces that wall segment (the wall\'s stone is not refunded). Gates can\'t go over enemy walls or other buildings.'],
  ['Garrison','Right-click your Keep (40), Fortress (30) or Tower (6) with peasants/spearmen/archers, or press G. Inside they are safe and shoot: every garrisoned unit adds 1 arrow per volley (archers 2). Keep: 4 arrows / 0.8 s, Fortress: 8 arrows / 0.8 s out to 11.5 tiles; with no enemy units in range it shoots enemy buildings (towers, keeps and fortresses first, then walls, gates and sites) for 15 damage/s. Fortress arrows deal 6 damage (Keep and Tower 10/9). U unloads (to the rally point). Town Bell: B with the Keep selected (or Shift+B anywhere) calls peasants first, then infantry inside; ring again to release — peasants resume work. Units flee out if the building falls.'],
  ['Army','Keep trains peasants; Barracks: spearmen & archers; Stable: knights; Workshop: catapults (Middle Ages: also trebuchets and siege rams). Q/E/R/T train from the selected building (when the build menu is closed). Right-click with a building selected sets its rally point. Houses raise population (+8 each; Keep and Fortress +10) up to the cap of 200.'],
- ['Ages','A finished University (5,000 of every resource) brings the Middle Ages: trebuchets (range 12, heavy siege) and siege rams (x5 vs buildings, tough, weak vs units) at the Workshop; archers +3 range; spearmen and knights +20% health. A finished Research Lab (10,000 of each, needs the Middle Ages) brings the Modern Age: archers, knights, spearmen and trebuchets become Machine Gunners, Tanks, Infantry (shoot 3 tiles) and Howitzers with +20% speed, +25% health, +50% damage. Existing units upgrade too. Unit costs double with each age. Your age is kept even if the building is later destroyed.'],
+ ['Ages','A finished University (5,000 of every resource) brings the Middle Ages: trebuchets (range 12, heavy siege) and siege rams (x5 vs buildings, tough, weak vs units) at the Workshop; archers +3 range; spearmen and knights +20% health. A finished Research Lab (10,000 of each, needs the Middle Ages) brings the Modern Age: archers, knights, spearmen and trebuchets become Machine Gunners, Tanks (fire shells 8 tiles, see 10), Infantry (shoot 3 tiles) and Howitzers with +20% speed, +25% health, +50% damage. Existing units upgrade too. Unit costs double with each age. Your age is kept even if the building is later destroyed.'],
  ['Nukes','Select a finished Research Lab: Q (or the button) builds a nuclear bomb for 10,000 of every resource (150 s). K, then click anywhere on the map or minimap (fog ignored) and confirm: after a short flight it destroys every unit and building within 30 tiles, yours included. A Keep caught in the blast means defeat. Lab also launches a spy satellite (3,000 of each, 60 s): the whole map is revealed to you for the rest of the game.'],
  ['Counters','Spearmen beat knights. Knights crush archers & catapults. Archers shred infantry. Catapults demolish walls and buildings. Towers, Keeps and Fortresses shoot arrows.'],
  ['Rivals','Ravenmoor is aggressive and attacks early. Eldmark builds a big economy and strikes late with large armies. Stonehold walls itself in with towers. Rivals also fight each other.'],
@@ -1935,7 +1938,7 @@ function applySnap(s){const now=performance.now();SNAP_DT=clamp(NS.snapIv/1000,1
  blds=blds.filter(b=>{if(seen.has(b.id))return true;b.dead=true;cmap.delete(b.id);mmDirty=true;return false;});
  bgrid.fill(null);for(const b of blds)for(let y=b.ty;y<b.ty+b.h;y++)for(let x=b.tx;x<b.tx+b.w;x++)bgrid[y*MAP+x]=b;passGen++;
  nukeFx=(s.N||[]).map(a=>({sx:a[0],sy:a[1],tx:a[2],ty:a[3],t0:a[4],dur:a[5],owner:a[6],boomT:a[7],sat:a[8]||0}));
- projs=s.J.map(a=>({k:a[0]===2?'bullet':a[0]?'stone':'arrow',shell:a[0]===3,sx:a[1],sy:a[2],tx:a[3],ty:a[4],life:a[5],dur:a[6],sz:a[7]||undefined}));
+ projs=s.J.map(a=>({k:a[0]===2?'bullet':a[0]===4?'tshell':a[0]?'stone':'arrow',shell:a[0]===3,sx:a[1],sy:a[2],tx:a[3],ty:a[4],life:a[5],dur:a[6],sz:a[7]||undefined}));
  for(const i of s.R){resT[i]=0;mmDirty=true;}
  for(const a of s.F)parts.push({x:a[0],y:a[1],z:a[2],vx:a[3],vy:a[4],vz:a[5],life:a[6],max:Math.max(a[6],.3),c:a[7],s:a[8],smoke:!!a[9]});
  for(const a of s.D)decals.push(a[0]===0?{k:'rubble',x:a[1],y:a[2],w:a[3],h:a[4],t:a[5]}:{k:'corpse',x:a[1],y:a[2],c:a[3],t:a[4]});
