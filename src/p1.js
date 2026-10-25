@@ -36,7 +36,7 @@ const BLD={
  workshop:{name:'Siege Workshop',w:3,h:3,hp:1100,cost:{wood:200,stone:100,gold:50},time:35,train:['catapult'],sight:6,val:350,desc:'Builds catapults.'},
  wall:{name:'Wall',w:1,h:1,hp:700,cost:{stone:6},time:4,wall:true,sight:2,val:6,desc:'Blocks movement. Click-drag to build a line.'},
  gate:{name:'Gate',w:1,h:1,hp:900,cost:{stone:20,wood:10},time:6,wall:true,gate:true,sight:3,val:30,desc:'Wall segment your own units can pass.'},
- tower:{name:'Tower',w:1,h:1,hp:900,cost:{stone:100,wood:40},time:22,shoot:{range:7,atk:9,cd:1.4,n:1},gar:6,sight:9,val:140,desc:'Shoots arrows at enemies in range. Garrisons 6 infantry/peasants; each adds an arrow (archers 2).'},
+ tower:{name:'Tower',w:1,h:1,hp:900,cost:{stone:100,wood:40},time:22,shoot:{range:7,atk:9,cd:1.4,n:1},gar:6,sight:12,val:140,desc:'Shoots arrows at enemies in range (sees 12 tiles, beyond Fortress range). Garrisons 6 infantry/peasants; each adds an arrow (archers 2).'},
  fortress:{name:'Fortress',w:3,h:3,hp:3600,cost:{stone:400,wood:200,gold:150},time:55,pop:10,drop:ALLRES,shoot:{range:11.5,atk:10,cd:0.8,n:8,bld:true},gar:30,train:['spearman','archer','knight'],sight:12,val:750,desc:'Mighty stronghold: +10 pop, drop-off, trains troops, fires 8 arrows every 0.8 s (twice the Keep, +1 per garrisoned unit, +2 per archer) out to 11.5 tiles (catapult range + 3). With no enemy units in range it shoots enemy buildings, towers first (25 damage/s).'},
 };
 const GAR_T=['peasant','spearman','archer'];const canGar=u=>GAR_T.includes(u.type);

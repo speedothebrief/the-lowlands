@@ -257,6 +257,7 @@ console.log('--- unfinished sites give no vision');
  ok(near.length===0&&at(tx,ty)===2&&ring.every(([x,y])=>at(x,y)===0),'unfinished site far away: only its own tile is visible to the owner, nothing beyond');
  const F=A.spawnBld('fortress',tx+10,ty,0,false);V=A.updateVisFor(0);ok(at(tx+11,ty+1)===2&&at(tx+15,ty+1)===0&&at(tx+10,ty+5)===0,'unfinished 3x3 site: footprint visible, surroundings stay fogged');
  T.built=true;T.prog=1;V=A.updateVisFor(0);ok(ring.every(([x,y])=>at(x,y)===2),'once built, the tower reveals its sight radius immediately');
+ ok(A.BLD.tower.sight>A.BLD.fortress.shoot.range&&at(tx-12,ty)===2&&at(tx-14,ty)===0,'tower sees 12 tiles, further than the Fortress shoots (11.5)');
  T.dead=true;F.dead=true;V=A.updateVisFor(0);ok(at(tx+3,ty)===1,'after it is gone the area is remembered (explored), not live');
  const S=A.spawnBld('house',tx-20,ty+4,0,false);const pz=A.spawnUnit('peasant',tx-21,ty+4.5,0);V=A.updateVisFor(0);
  ok(at(tx-26,ty+4)===2&&at(tx-21+7,ty+4)===0,'a peasant building a site still sees with its own sight (6), the site adds nothing');}
