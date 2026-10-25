@@ -64,6 +64,20 @@ function drawBld(b,alpha){const D=BLD[b.type];const P=players[b.owner]||{color:[
  case 'fortress':{box(x0+.2,y0+.2,x1-.2,y1-.2,34,STONE);merlons(x0+.2,y0+.2,x1-.2,y1-.2,34,STONE,7);box(x0+.9,y0+.9,x1-.9,y1-.9,22,STONE,34);pyramid(x0+.85,y0+.85,x1-.85,y1-.85,56,18,tc);
   for(const [cx,cy] of [[x0+.45,y0+.45],[x1-.45,y0+.45],[x0+.45,y1-.45],[x1-.45,y1-.45]]){box(cx-.4,cy-.4,cx+.4,cy+.4,52,[160,156,146]);pyramid(cx-.45,cy-.45,cx+.45,cy+.45,52,16,tc);}
   flag(b.x,b.y,74,tc,1.3);break;}
+ case 'university':{const SAND=[214,200,168];box(x0+.15,y0+.2,x1-.15,y1-.2,26,SAND);   // colonnaded hall with a dome and bell tower
+  for(let i=0;i<6;i++){const p=iso(x0+.3+i*(b.w-.6)/5,y1-.2);ctx.fillStyle='#f2ead6';ctx.fillRect(p[0]-1.5,p[1]-25,3,24);}
+  gable(x0+.1,y0+.15,x1-.1,y1-.15,26,10,[120,60,50]);const c=iso(b.x,b.y);ctx.fillStyle='#d8cfb4';ctx.fillRect(c[0]-9,c[1]-50,18,14);
+  ctx.fillStyle=rgb(tc,1.1);ctx.beginPath();ctx.arc(c[0],c[1]-50,10,Math.PI,0);ctx.fill();ctx.fillStyle='#e8c040';ctx.fillRect(c[0]-1,c[1]-66,2,7);
+  box(x1-.9,y0+.2,x1-.3,y0+.8,52,SAND);pyramid(x1-.95,y0+.15,x1-.25,y0+.85,52,14,tc);const bp=iso(x1-.6,y0+.5);ctx.fillStyle='#3a2a1a';ctx.fillRect(bp[0]-3,bp[1]-46,6,7);ctx.fillStyle='#d9b24a';ctx.beginPath();ctx.arc(bp[0],bp[1]-41,2.2,0,7);ctx.fill();
+  flag(x0+.3,y0+.3,36,tc);break;}
+ case 'lab':{const STEEL=[178,186,196];box(x0+.15,y0+.15,x1-.15,y1-.15,22,STEEL);   // concrete-and-glass lab, radar dish, launch gantry
+  for(let i=0;i<4;i++){const p0=iso(x0+.4+i*.6,y1-.15);ctx.fillStyle='rgba(120,200,255,.75)';ctx.fillRect(p0[0]-3,p0[1]-17+i*0,6,9);}
+  box(x0+.5,y0+.5,x0+1.6,y0+1.6,14,[150,160,172],22);const d=iso(x0+1.05,y0+1.05);ctx.fillStyle='#e8eef4';ctx.beginPath();ctx.ellipse(d[0],d[1]-44,9,5,-.5+Math.sin(time*.6)*.3,0,7);ctx.fill();ctx.strokeStyle='#666';ctx.beginPath();ctx.moveTo(d[0],d[1]-36);ctx.lineTo(d[0],d[1]-44);ctx.stroke();
+  const g=iso(x1-.6,y1-.6);ctx.strokeStyle='#8a2a20';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(g[0]-6,g[1]-22);ctx.lineTo(g[0]-6,g[1]-70);ctx.moveTo(g[0]+4,g[1]-22);ctx.lineTo(g[0]+4,g[1]-70);for(let k=0;k<6;k++){ctx.moveTo(g[0]-6,g[1]-26-k*8);ctx.lineTo(g[0]+4,g[1]-30-k*8);}ctx.stroke();ctx.lineWidth=1;
+  {ctx.fillStyle='#eef';ctx.fillRect(g[0]-1,g[1]-62,5,34);ctx.fillStyle=rgb(tc);ctx.beginPath();ctx.moveTo(g[0]-1,g[1]-62);ctx.lineTo(g[0]+1.5,g[1]-70);ctx.lineTo(g[0]+4,g[1]-62);ctx.fill();}
+  if(b.nukeQ||b.satQ){ctx.fillStyle=`rgba(255,${b.nukeQ?90:200},60,${.5+.5*Math.sin(time*6)})`;ctx.beginPath();ctx.arc(d[0]+16,d[1]-30,2.5,0,7);ctx.fill();}
+  const sy=iso(x0+.3,y1-.3);ctx.fillStyle='#f2d020';ctx.beginPath();ctx.arc(sy[0]+6,sy[1]-12,4,0,7);ctx.fill();ctx.fillStyle='#222';for(let k=0;k<3;k++){const an=k*2.09-1.57;ctx.beginPath();ctx.moveTo(sy[0]+6,sy[1]-12);ctx.arc(sy[0]+6,sy[1]-12,3.4,an-.45,an+.45);ctx.fill();}
+  flag(x0+.3,y0+.3,30,tc);break;}
  }
  if(b.hp<b.maxhp*.5&&Math.random()<.06)parts.push({x:b.x+rr(-b.w/3,b.w/3),y:b.y+rr(-b.h/3,b.h/3),z:20,vx:.2,vy:-.2,vz:15,life:1.5,max:1.5,c:b.hp<b.maxhp*.25?'#e86a1a':'#555',s:4,smoke:true});
  ctx.globalAlpha=1;}
@@ -79,14 +93,15 @@ function drawRes(tx,ty){const i=ty*MAP+tx,t=resT[i],v=treeV[i];const p=iso(tx+.5
  else{const gold=t===3;ctx.fillStyle='rgba(0,0,0,.2)';ctx.beginPath();ctx.ellipse(x+2,y+2,16,7,0,0,7);ctx.fill();
   const rocks=[[-8,0,9],[6,-1,10],[-1,-6,11]];for(const [ox,oy,s] of rocks){const c=gold?[120,100,70]:[140,138,132];poly([x+ox-s,y+oy,x+ox-s*.5,y+oy-s*.9,x+ox+s*.4,y+oy-s,x+ox+s,y+oy-s*.2,x+ox+s*.6,y+oy+s*.35,x+ox-s*.4,y+oy+s*.4],rgb(c,.8));poly([x+ox-s*.5,y+oy-s*.9,x+ox+s*.4,y+oy-s,x+ox+s,y+oy-s*.2,x+ox,y+oy-s*.3],rgb(c,1.15));}
   if(gold){ctx.fillStyle='#f2cf3a';for(let k=0;k<5;k++){ctx.beginPath();ctx.arc(x-9+((k*7+v*3)%18),y-3-((k*5)%9),1.8,0,7);ctx.fill();}if(Math.sin(time*3+i)>.95){ctx.fillStyle='#fff';ctx.fillRect(x-2,y-9,2,2);}}}}
-function drawUnit(u,iconMode){const D=UNITS[u.type];const P=players[u.owner];const c=P?P.color:[128,128,128];const p=iconMode?[0,0]:iso(u.x,u.y);
+function drawUnit(u,iconMode){const D=UNITS[u.type];const modern=ageOf(u.owner)>=2&&!!MODERN[u.type];const P=players[u.owner];const c=P?P.color:[128,128,128];const p=iconMode?[0,0]:iso(u.x,u.y);
  ctx.save();ctx.translate(p[0],p[1]);
- if(!iconMode){ctx.fillStyle='rgba(0,0,0,.25)';ctx.beginPath();ctx.ellipse(0,0,u.type==='knight'||u.type==='catapult'?11:6,u.type==='knight'||u.type==='catapult'?5:3,0,0,7);ctx.fill();}
+ if(!iconMode){ctx.fillStyle='rgba(0,0,0,.25)';ctx.beginPath();ctx.ellipse(0,0,bigU(u.type)?(u.type==='ram'?14:11):6,bigU(u.type)?(u.type==='ram'?7:5):3,0,0,7);ctx.fill();}
  if(u.dir<0)ctx.scale(-1,1);
  const walk=u.moving||(u.path&&u.path.length);const bob=walk?Math.abs(Math.sin(u.anim*10))*1.5:0;const leg=walk?Math.sin(u.anim*10)*2.5:0;
  const skin='#e2b68c',tcol=rgb(c),tdark=rgb(c,.6);
  const legs=(y0)=>{ctx.strokeStyle='#3a2a1a';ctx.lineWidth=1.8;ctx.beginPath();ctx.moveTo(-1.5,y0);ctx.lineTo(-1.5-leg,0);ctx.moveTo(1.5,y0);ctx.lineTo(1.5+leg,0);ctx.stroke();ctx.lineWidth=1;};
- if(u.type==='peasant'){legs(-5);ctx.fillStyle='#8a6a42';ctx.beginPath();ctx.ellipse(0,-9-bob,4,5,0,0,7);ctx.fill();ctx.fillStyle=tcol;ctx.fillRect(-4,-9-bob,8,2);
+ if(modern)drawModern(u,walk,bob,legs,tcol,tdark,skin);
+ else if(u.type==='peasant'){legs(-5);ctx.fillStyle='#8a6a42';ctx.beginPath();ctx.ellipse(0,-9-bob,4,5,0,0,7);ctx.fill();ctx.fillStyle=tcol;ctx.fillRect(-4,-9-bob,8,2);
   ctx.fillStyle=skin;ctx.beginPath();ctx.arc(0,-16-bob,3,0,7);ctx.fill();ctx.fillStyle='#c9a85a';ctx.beginPath();ctx.ellipse(0,-18.5-bob,5,1.6,0,0,7);ctx.fill();
   if(u.working){const a=Math.sin(u.anim*9)*0.9;ctx.save();ctx.translate(3,-11-bob);ctx.rotate(-0.6+a);ctx.strokeStyle='#5a3a1a';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(8,0);ctx.stroke();ctx.fillStyle=u.state==='farm'?'#aaa':'#bbb';ctx.fillRect(7,-2.5,2.5,5);ctx.restore();ctx.lineWidth=1;}
   if(u.carry>0){ctx.fillStyle=u.carryT==='wood'?'#7a5230':u.carryT==='stone'?'#999':'#e8c040';ctx.fillRect(-7,-14-bob,4,5);}}
@@ -106,4 +121,36 @@ function drawUnit(u,iconMode){const D=UNITS[u.type];const P=players[u.owner];con
   const ang=-0.5-fire*1.6+(u.cd>1?0:0);ctx.beginPath();ctx.moveTo(4,-9);ctx.lineTo(4+Math.cos(Math.PI+ang)*16,-9+Math.sin(Math.PI+ang)*16);ctx.stroke();ctx.lineWidth=1;
   if(u.cd<UNITS.catapult.cd-0.6&&fire===0){ctx.fillStyle='#777';ctx.beginPath();ctx.arc(4+Math.cos(Math.PI+ang)*16,-11+Math.sin(Math.PI+ang)*16,2.5,0,7);ctx.fill();}
   ctx.fillStyle=tcol;ctx.fillRect(-9,-18,1.5,8);ctx.fillRect(-7.5,-18,5,3);}
+ else if(u.type==='trebuchet'){const fire=u.fireT?Math.max(0,1-(time-u.fireT)/0.5):0;   // tall A-frame, long throwing arm, counterweight
+  ctx.strokeStyle='#3a2410';ctx.lineWidth=2;for(const wx of [-9,9]){ctx.beginPath();ctx.arc(wx,-3,3.5,0,7);ctx.stroke();}ctx.fillStyle='#6a4626';ctx.fillRect(-13,-8,26,5);
+  ctx.strokeStyle='#5a3a1c';ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(-7,-7);ctx.lineTo(0,-28);ctx.lineTo(7,-7);ctx.stroke();
+  const ang=0.9-fire*2.2;const ax=Math.cos(Math.PI+ang),ay=Math.sin(Math.PI+ang);ctx.strokeStyle='#8a6038';ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(-ax*8,-28-ay*8);ctx.lineTo(ax*24,-28+ay*24);ctx.stroke();
+  ctx.fillStyle='#55504a';ctx.fillRect(-ax*8-4,-28-ay*8-2,8,8);ctx.lineWidth=1;
+  if(u.cd<UNITS.trebuchet.cd-0.8&&fire===0){ctx.fillStyle='#777';ctx.beginPath();ctx.arc(ax*24,-26+ay*24,3,0,7);ctx.fill();}
+  ctx.fillStyle=tcol;ctx.fillRect(10,-22,1.5,12);ctx.fillRect(11.5,-22,6,4);}
+ else if(u.type==='ram'){const sw=u.swingT&&time-u.swingT<.4?Math.sin((time-u.swingT)/.4*Math.PI)*5:0;   // roofed shed on wheels with an iron-capped log
+  ctx.strokeStyle='#2a1a0c';ctx.lineWidth=2;for(const wx of [-9,0,9]){ctx.beginPath();ctx.arc(wx,-3,3.2,0,7);ctx.stroke();}ctx.lineWidth=1;
+  ctx.fillStyle='#4a3018';ctx.fillRect(4+sw,-12,14,4);ctx.fillStyle='#8a8f96';ctx.beginPath();ctx.arc(18+sw,-10,3,0,7);ctx.fill();
+  ctx.fillStyle='#6a4626';ctx.fillRect(-13,-14,24,9);ctx.fillStyle=tdark;ctx.beginPath();ctx.moveTo(-15,-13);ctx.lineTo(-1,-24);ctx.lineTo(13,-13);ctx.fill();
+  ctx.fillStyle=tcol;ctx.beginPath();ctx.moveTo(-11,-14);ctx.lineTo(-1,-21);ctx.lineTo(9,-14);ctx.fill();ctx.strokeStyle='#3a2410';ctx.beginPath();ctx.moveTo(-15,-13);ctx.lineTo(-1,-24);ctx.lineTo(13,-13);ctx.stroke();}
+ if(!iconMode)ageFx.unitFlash(u);
  ctx.restore();}
+// Modern Age sprites (same unit types, drawn as Machine Gunner / Infantry / Tank / Howitzer)
+function drawModern(u,walk,bob,legs,tcol,tdark,skin){const fl=u.swingT&&time-u.swingT<.12;const olive='#56603a',dk='#2a2e26';
+ if(u.type==='archer'||u.type==='spearman'){const mg=u.type==='archer';legs(-5);
+  ctx.fillStyle=olive;ctx.beginPath();ctx.ellipse(0,-9-bob,4.5,5.5,0,0,7);ctx.fill();ctx.fillStyle=tcol;ctx.fillRect(-4.5,-8-bob,9,2.5);
+  ctx.fillStyle=skin;ctx.beginPath();ctx.arc(0,-16-bob,3,0,7);ctx.fill();ctx.fillStyle=mg?'#3e4630':'#4a5236';ctx.beginPath();ctx.ellipse(0,-17.5-bob,4.2,2.6,0,Math.PI,0);ctx.fill();ctx.fillRect(-4.6,-17.8-bob,9.2,1.4);
+  if(mg){ctx.fillStyle=dk;ctx.fillRect(-1,-12-bob,13,3);ctx.fillRect(2,-10-bob,2,4);ctx.fillStyle='#777';ctx.fillRect(1,-9-bob,4,3);ctx.strokeStyle=dk;ctx.beginPath();ctx.moveTo(10,-10-bob);ctx.lineTo(9,-6-bob);ctx.moveTo(10,-10-bob);ctx.lineTo(12,-6-bob);ctx.stroke();}
+  else{ctx.strokeStyle=dk;ctx.lineWidth=1.8;ctx.beginPath();ctx.moveTo(-2,-9-bob);ctx.lineTo(12,-14-bob);ctx.stroke();ctx.lineWidth=1;ctx.fillStyle='#6a4a2a';ctx.fillRect(-3,-10-bob,4,2.5);}
+  if(fl){ctx.fillStyle='#ffe070';ctx.beginPath();ctx.arc(mg?13:13,mg?-10.5-bob:-14.5-bob,2.6,0,7);ctx.fill();}}
+ else if(u.type==='knight'){const tr=walk?(u.anim*20)%4:0;   // tank: tracks, hull in team colour, turret + barrel
+  ctx.fillStyle='#2a2a26';ctx.fillRect(-13,-6,26,6);ctx.fillStyle='#4a4a44';for(let i=0;i<7;i++)ctx.fillRect(-12+i*4+tr*.5,-5,2,4);
+  ctx.fillStyle=tdark;ctx.beginPath();ctx.moveTo(-13,-6);ctx.lineTo(-11,-12);ctx.lineTo(12,-12);ctx.lineTo(15,-6);ctx.fill();
+  ctx.fillStyle=olive;ctx.fillRect(-11,-12,23,2);ctx.fillStyle=tcol;ctx.beginPath();ctx.ellipse(-1,-14,7,4,0,0,7);ctx.fill();ctx.fillStyle=dk;ctx.fillRect(4,-15.5,14,2.4);
+  ctx.fillStyle='#333';ctx.fillRect(-3,-19,3,2);if(fl){ctx.fillStyle='#ffd060';ctx.beginPath();ctx.arc(20,-14.3,3.5,0,7);ctx.fill();}}
+ else if(u.type==='trebuchet'){const fire=u.fireT?Math.max(0,1-(time-u.fireT)/0.3):0;   // howitzer: split trail, shield, long recoiling barrel
+  ctx.strokeStyle=dk;ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(-2,-6);ctx.lineTo(-16,-1);ctx.moveTo(-2,-6);ctx.lineTo(-12,1);ctx.stroke();
+  ctx.lineWidth=2;ctx.strokeStyle='#222';ctx.beginPath();ctx.arc(0,-4,4.5,0,7);ctx.stroke();ctx.lineWidth=1;
+  ctx.fillStyle=olive;ctx.fillRect(-4,-12,8,7);ctx.fillStyle=tcol;ctx.fillRect(-3,-11,6,2);
+  ctx.save();ctx.translate(0,-10);ctx.rotate(-0.45);ctx.fillStyle=dk;ctx.fillRect(-4-fire*4,-1.6,22,3.2);ctx.fillRect(16-fire*4,-2.2,3,4.4);ctx.restore();
+  if(fire>0){ctx.globalAlpha=fire;ctx.fillStyle='#ffd060';ctx.beginPath();ctx.arc(18,-18,5*fire+2,0,7);ctx.fill();ctx.fillStyle='rgba(200,200,200,.6)';ctx.beginPath();ctx.arc(22,-22,8*(1-fire)+3,0,7);ctx.fill();ctx.globalAlpha=1;}}}

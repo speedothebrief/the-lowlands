@@ -1,3 +1,4 @@
+let nukeQuiet=false;
 // ===== spatial hash =====
 const HC=4;let HN=Math.ceil(MAP/HC);let hash=[],bhash=[],uMask=new Uint8Array(0),bMask=new Uint8Array(0);
 // spatial hash of units (and of buildings) per 4x4-tile cell, with a bitmask of the owners present in each cell: target scans
@@ -14,7 +15,7 @@ function queryUnits(x,y,r,fn){const x0=clamp((x-r)/HC|0,0,HN-1),x1=clamp((x+r)/H
 function distTo(u,t){if(t.kind==='unit')return dist(u.x,u.y,t.x,t.y);const px=clamp(u.x,t.tx,t.tx+t.w),py=clamp(u.y,t.ty,t.ty+t.h);return dist(u.x,u.y,px,py);}
 function targetPoint(u,t){if(t.kind==='unit')return{x:t.x,y:t.y};return{x:clamp(u.x,t.tx-.45,t.tx+t.w+.45),y:clamp(u.y,t.ty-.45,t.ty+t.h+.45)};}
 function findEnemy(u,r,unitsOnly){
- let best=null,bd=1e9;const cat=u.type==='catapult';const foe=0xff&~(1<<u.owner);
+ let best=null,bd=1e9;const cat=!!UNITS[u.type].bldPref;const foe=0xff&~(1<<u.owner);
  if(uMask.length===HN*HN&&!(cellMask(uMask,u.x,u.y,r)&foe)){if(unitsOnly)return null;}else
  queryUnits(u.x,u.y,r,v=>{if(v.dead||!isEnemy(u.owner,v.owner))return;const d=dist(u.x,u.y,v.x,v.y);if(d>r)return;const s=d+(v.type==='peasant'?2:0)+(cat?3:0);if(s<bd){bd=s;best=v;}});
  if(unitsOnly)return best;
@@ -45,27 +46,28 @@ function dealDamage(att,t,amount,atype,owner){
  if(t.hp<=0)killEnt(t,owner);}
 function killEnt(e,by){
  if(e.dead)return;e.dead=true;
- if(e.kind==='unit'){releaseClaim(e);sfx('die',e.x,e.y,e.owner,e.type==='knight'?1:e.type==='catapult'?2:0);players[e.owner].stats.lost++;if(by>=0&&players[by])players[by].stats.killed++;
-  decals.push({k:'corpse',x:e.x,y:e.y,t:time,c:players[e.owner].color});
+ if(e.kind==='unit'){releaseClaim(e);if(!nukeQuiet)sfx('die',e.x,e.y,e.owner,e.type==='knight'?1:bigU(e.type)?2:0);players[e.owner].stats.lost++;if(by>=0&&by!==e.owner&&players[by])players[by].stats.killed++;
+  if(nukeQuiet)return;decals.push({k:'corpse',x:e.x,y:e.y,t:time,c:players[e.owner].color});
   for(let i=0;i<6;i++)parts.push({x:e.x,y:e.y,z:6,vx:rr(-1.5,1.5),vy:rr(-1.5,1.5),vz:rr(10,40),life:.7,max:.7,c:'#8a1010',s:2});
  }else{
   for(let y=e.ty;y<e.ty+e.h;y++)for(let x=e.tx;x<e.tx+e.w;x++)if(bgrid[y*MAP+x]===e)bgrid[y*MAP+x]=null;passGen++;
-  decals.push({k:'rubble',x:e.tx,y:e.ty,w:e.w,h:e.h,t:time});sfx('fall',e.x,e.y,e.owner,e.w);
+  decals.push({k:'rubble',x:e.tx,y:e.ty,w:e.w,h:e.h,t:time});if(!nukeQuiet)sfx('fall',e.x,e.y,e.owner,e.w);
   if(e.gar&&e.gar.length){const n=ejectAll(e,true);if(n&&players[e.owner].isHuman)msg(`${n} units fled the burning ${BLD[e.type].name}!`,'#ff8a6a',e.owner);}
-  for(let i=0;i<14*e.w;i++)parts.push({x:e.x+rr(-e.w/2,e.w/2),y:e.y+rr(-e.h/2,e.h/2),z:rr(0,30),vx:rr(-1,1),vy:rr(-1,1),vz:rr(5,40),life:1.2,max:1.2,c:rnd()<.5?'#777':'#5a4a3a',s:3});
+  if(!nukeQuiet)for(let i=0;i<14*e.w;i++)parts.push({x:e.x+rr(-e.w/2,e.w/2),y:e.y+rr(-e.h/2,e.h/2),z:rr(0,30),vx:rr(-1,1),vy:rr(-1,1),vz:rr(5,40),life:1.2,max:1.2,c:rnd()<.5?'#777':'#5a4a3a',s:3});
   if(!e.built&&!e.cancelled){const c=BLD[e.type].cost,P=players[e.owner];for(const r in c)P.res[r]+=Math.floor(c[r]*.5);}
   mmDirty=true;
   if(e.type==='keep')surrender(players[e.owner],by,'keep');
   else if(players[e.owner].isHuman&&!e.cancelled&&!e.demolished)msg(`Your ${BLD[e.type].name} was destroyed.`,'#ff8a6a',e.owner);
  }}
-function attack(u,t){const D=UNITS[u.type];const d=distTo(u,t);
- if(D.proj==='arrow'){sfx('bow',u.x,u.y,u.owner);}if(D.proj==='arrow')projs.push({k:'arrow',sx:u.x,sy:u.y,t,tx:t.x,ty:t.y,life:0,dur:Math.max(.15,d/13),dmg:D.atk,owner:u.owner,atype:u.type,att:u});
- else if(D.proj==='stone'){const tp=t.kind==='unit'?{x:t.x,y:t.y}:{x:t.x,y:t.y};projs.push({k:'stone',sx:u.x,sy:u.y,tx:tp.x+rr(-.3,.3),ty:tp.y+rr(-.3,.3),life:0,dur:Math.max(.5,d/7),dmg:D.atk,owner:u.owner,atype:u.type,att:u,splash:D.splash});u.fireT=time;sfx('launch',u.x,u.y,u.owner);}
- else{sfx('hit',t.x,t.y,u.owner,u.type==='knight'?1:u.type==='peasant'?2:0);dealDamage(u,t,D.atk,u.type,u.owner);u.swingT=time;}}
+function attack(u,t){const D=uD(u);const d=distTo(u,t);
+ if(D.proj==='arrow'){sfx('bow',u.x,u.y,u.owner);projs.push({k:'arrow',sx:u.x,sy:u.y,t,tx:t.x,ty:t.y,life:0,dur:Math.max(.15,d/13),dmg:D.atk,owner:u.owner,atype:u.type,att:u});}
+ else if(D.proj==='bullet'){sfx('gun',u.x,u.y,u.owner);u.swingT=time;projs.push({k:'bullet',sx:u.x,sy:u.y,t,tx:t.x,ty:t.y,life:0,dur:Math.max(.08,d/30),dmg:D.atk,owner:u.owner,atype:u.type,att:u});}
+ else if(D.proj==='stone'){const tp=t.kind==='unit'?{x:t.x,y:t.y}:{x:t.x,y:t.y};projs.push({k:'stone',sx:u.x,sy:u.y,tx:tp.x+rr(-.3,.3),ty:tp.y+rr(-.3,.3),life:0,dur:Math.max(.5,d/7),dmg:D.atk,owner:u.owner,atype:u.type,att:u,splash:D.splash,shell:!!D.modern});u.fireT=time;sfx(D.modern?'gun':'launch',u.x,u.y,u.owner,D.modern?1:0);}
+ else{if(D.modern){sfx('gun',t.x,t.y,u.owner,1);}else sfx('hit',t.x,t.y,u.owner,u.type==='knight'?1:u.type==='peasant'||u.type==='ram'?2:0);dealDamage(u,t,D.atk,u.type,u.owner);u.swingT=time;}}
 function updateProjs(dt){
  for(const p of projs){p.life+=dt;if(p.t&&!p.t.dead){p.tx=p.t.x;p.ty=p.t.y;}
   if(p.life>=p.dur){p.done=true;
-   if(p.k==='arrow'){if(p.t&&!p.t.dead)sfx('thk',p.tx,p.ty,p.owner,p.t.kind==='bld'?1:0);if(p.t&&!p.t.dead)dealDamage(p.att&&!p.att.dead?p.att:null,p.t,p.dmg,p.atype,p.owner);}
+   if(p.k==='arrow'||p.k==='bullet'){if(p.t&&!p.t.dead&&p.k==='arrow')sfx('thk',p.tx,p.ty,p.owner,p.t.kind==='bld'?1:0);if(p.t&&!p.t.dead)dealDamage(p.att&&!p.att.dead?p.att:null,p.t,p.dmg,p.atype,p.owner);}
    else{sfx('boom',p.tx,p.ty,p.owner);for(let i=0;i<10;i++)parts.push({x:p.tx,y:p.ty,z:2,vx:rr(-1.5,1.5),vy:rr(-1.5,1.5),vz:rr(10,35),life:.8,max:.8,c:'#8a7a60',s:2.5});
     const hit=[];queryUnits(p.tx,p.ty,p.splash+1,v=>{if(!v.dead&&isEnemy(p.owner,v.owner)&&dist(v.x,v.y,p.tx,p.ty)<=p.splash)hit.push(v);});
     const bx=Math.floor(p.tx),by=Math.floor(p.ty);const bs=new Set();for(let y=by-1;y<=by+1;y++)for(let x=bx-1;x<=bx+1;x++){if(!inb(x,y))continue;const b=bgrid[y*MAP+x];if(b&&isEnemy(p.owner,b.owner)&&distTo({x:p.tx,y:p.ty},b)<=p.splash*.6)bs.add(b);}
@@ -79,7 +81,7 @@ function resumeAfterFight(u){u.target=null;
  if(u.leash&&u.guard&&dist(u.x,u.y,u.guard.x,u.guard.y)>2){u.state='move';u.leash=false;goTo(u,u.guard.x,u.guard.y);return;}
  u.state='idle';u.leash=false;}
 function updateUnit(u,dt){
- const D=UNITS[u.type];u.cd-=dt;u.anim+=dt;u.moving=false;u.working=false;
+ const D=uD(u);u.cd-=dt;u.anim+=dt;u.moving=false;u.working=false;
  if(u.target&&u.target.inG)u.target=null;
  if(u.state==='garrison'){const b=u.garB;if(!garCap(b)||b.owner!==u.owner){u.garB=null;u.state='idle';resumeWork(u);return;}
   if(distTo(u,b)<=1.05){if(b.gar.length<garCap(b))enterGarrison(u,b);else{u.garB=null;u.state='idle';const alt=blds.find(o=>o!==b&&o.owner===u.owner&&garFree(o)>0&&distTo(u,o)<12);if(alt)sendGarrison(u,alt);else resumeWork(u);}return;}
@@ -91,7 +93,7 @@ function updateUnit(u,dt){
  }else if(u.state==='attack'){
   const t=u.target;
   if(!t||t.dead||!isEnemy(u.owner,t.owner)){resumeAfterFight(u);return;}
-  if(t.kind==='bld'&&u.type!=='catapult'&&(u.amove||u.leash||u.owner!==0)){u.scanT-=dt;if(u.scanT<=0){u.scanT=.6;const e=findEnemy(u,D.sight*.8,true);if(e)u.target=e;}}
+  if(t.kind==='bld'&&!D.bldPref&&(u.amove||u.leash||u.owner!==0)){u.scanT-=dt;if(u.scanT<=0){u.scanT=.6;const e=findEnemy(u,D.sight*.8,true);if(e)u.target=e;}}
   if(u.type==='catapult'&&t.kind==='unit'){u.scanT-=dt;if(u.scanT<=0){u.scanT=1;}}
   const d=distTo(u,t);const rng=D.range+(t.kind==='unit'?0.3:0.15);
   if(d<=rng&&!(D.minRange&&d<D.minRange)){u.path=null;u.pend=null;const sdx=(t.x-t.y)-(u.x-u.y);if(Math.abs(sdx)>.05)u.dir=sdx>0?1:-1;
@@ -161,7 +163,7 @@ const d=dist(x,y,b.x,b.y);if(d<bd){bd=d;best=b;}}return best;}
 function separation(){
  for(const u of units){if(u.dead||u.inG)continue;
   queryUnits(u.x,u.y,0.8,v=>{if(v.id<=u.id||v.dead)return;const dx=v.x-u.x,dy=v.y-u.y,d2=dx*dx+dy*dy;
-   const mn=(u.type==='knight'||u.type==='catapult'||v.type==='knight'||v.type==='catapult')?0.6:0.42;
+   const mn=(bigU(u.type)||bigU(v.type))?0.6:0.42;
    if(d2>=mn*mn)return;if(d2<1e-6){const a=(u.id*2.399)%6.283;tryMove(u,Math.cos(a)*.05,Math.sin(a)*.05);return;}   // deterministic
    const d=Math.sqrt(d2),push=(mn-d)*0.35,ux=dx/d,uy=dy/d,nx=ux*push,ny=uy*push;
    // friendly units that are stuck ghost through each other for a moment (no shove, no slide) - this ends any remaining dance
@@ -193,10 +195,12 @@ function tryMove(u,dx,dy){const cur=passable(Math.floor(u.x),Math.floor(u.y),u.o
 function afford(p,c){for(const r in c)if(p.res[r]<c[r])return false;return true;}
 function pay(p,c){for(const r in c)p.res[r]-=c[r];}
 function refund(p,c){for(const r in c)p.res[r]+=c[r];}
-function enqueue(b,ut){const p=players[b.owner];if(b.queue.length>=5||!afford(p,UNITS[ut].cost))return false;pay(p,UNITS[ut].cost);b.queue.push(ut);sfx('queued',b.x,b.y,b.owner);return true;}
+function enqueue(b,ut){const p=players[b.owner];if(UNITS[ut].age&&(p.age||0)<UNITS[ut].age)return false;const C=US(ut,b.owner).cost;if(b.queue.length>=5||!afford(p,C))return false;pay(p,C);if(!b.qc||b.qc.length!==b.queue.length)b.qc=b.queue.map(q=>UNITS[q].cost);b.queue.push(ut);b.qc.push(C);sfx('queued',b.x,b.y,b.owner);return true;}
 function updateBld(b,dt){const D=BLD[b.type];const P=players[b.owner];
  const nB=b.bN||0;b.bN=0;b.bc=nB;
- if(!b.built){if(nB>0){const e=buildEff(nB);b.prog+=dt*e/D.time;b.hp=Math.min(b.maxhp,b.hp+D.hp*.9*dt*e/D.time);}if(b.prog>=1){b.built=true;b.prog=1;b.doneT=time;mmDirty=true;sfx('built',b.x,b.y,b.owner,D.wall?1:0);if(P.isHuman&&!D.wall)msg(`${D.name} completed.`,'#bfe6a0',b.owner);}return;}
+ if(!b.built){if(nB>0){const e=buildEff(nB);b.prog+=dt*e/D.time;b.hp=Math.min(b.maxhp,b.hp+D.hp*.9*dt*e/D.time);}if(b.prog>=1){b.built=true;b.prog=1;b.doneT=time;mmDirty=true;sfx('built',b.x,b.y,b.owner,D.wall?1:0);if(P.isHuman&&!D.wall)msg(`${D.name} completed.`,'#bfe6a0',b.owner);if(D.ageUp&&(P.age||0)<D.ageUp)setAge(P,D.ageUp);}return;}
+ if(b.nukeQ){b.nukeT=(b.nukeT||0)+dt;if(b.nukeT>=NUKE.time){b.nukeQ=0;b.nukeT=0;P.nukes=(P.nukes||0)+1;sfx('built',b.x,b.y,b.owner,0);msg(`A nuclear bomb is ready (${P.nukes} in stock). Select the Research Lab and press K to launch.`,'#ffd36a',b.owner);}}
+ if(b.satQ){b.satT=(b.satT||0)+dt;if(b.satT>=SAT.time){b.satQ=0;b.satT=0;launchSat(P,b);}}
  if(nB>0&&b.hp<b.maxhp){const gain=Math.min(b.maxhp-b.hp,b.maxhp*dt*buildEff(nB)/(Math.max(D.time,8)*2.5));const rc=repairCost(b,gain);
   if(afford(P,rc)){pay(P,rc);b.hp+=gain;b.repT=time;if(Math.random()<dt*6)parts.push({x:b.x+rr(-b.w/2,b.w/2),y:b.y+rr(-b.h/2,b.h/2),z:rr(8,30),vx:rr(-.3,.3),vy:rr(-.3,.3),vz:rr(15,30),life:.6,max:.6,c:'#9cf27a',s:2});}
   else{b.noFundsT=time;}if(!afford(P,rc)&&time-(b.rfT||-99)>8){b.rfT=time;if(P.isHuman){msg(`Not enough wood/stone to repair the ${D.name}.`,'#ff9a8a',b.owner);sfx('err',b.x,b.y,b.owner);}}}
@@ -206,7 +210,7 @@ function updateBld(b,dt){const D=BLD[b.type];const P=players[b.owner];
   else if(S.bld){const t=fortBldTarget(b,S.range);if(t){sfx('bow',b.x,b.y,b.owner);fireVolley(b,S,[[0,t]],true);b.cd=S.cd;}else b.cd=.3;}
   else b.cd=.3;}}
  if(b.queue.length){const ut=b.queue[0],UD=UNITS[ut];b.trainT+=dt*(P.isAI?Math.sqrt(DIFF[difficulty].mult):1);
-  if(b.trainT>=UD.time){if(P.pop+UD.pop<=P.popCap){b.queue.shift();b.trainT=0;b.blocked=false;P.pop+=UD.pop;P.stats.trained++;spawnFrom(b,ut);sfx('trained',b.x,b.y,b.owner,ut==='peasant'?0:1);}
+  if(b.trainT>=UD.time){if(P.pop+UD.pop<=P.popCap){b.queue.shift();if(b.qc)b.qc.shift();b.trainT=0;b.blocked=false;P.pop+=UD.pop;P.stats.trained++;spawnFrom(b,ut);sfx('trained',b.x,b.y,b.owner,ut==='peasant'?0:1);}
    else{b.trainT=UD.time;if(!b.blocked&&P.isHuman){msg('Population limit reached — build Houses!','#ffd27a',b.owner);sfx('err',b.x,b.y,b.owner);}b.blocked=true;}}}}
 function spawnFrom(b,ut){const rp=b.rally||{x:b.x+1,y:b.y+3};const n=nearestFree(Math.floor(b.x),Math.floor(b.y),rp.x,rp.y,b.owner,6);if(!n)return;
  const u=spawnUnit(ut,n[0]+.5,n[1]+.5,b.owner);
@@ -227,7 +231,7 @@ const ownWall=(b,owner)=>b&&!b.dead&&b.type==='wall'&&b.owner===owner;
 function replaceWall(b){const p=players[b.owner];if(!b.built){refund(p,BLD.wall.cost);b.cancelled=true;}
  b.dead=true;for(let y=b.ty;y<b.ty+b.h;y++)for(let x=b.tx;x<b.tx+b.w;x++)if(bgrid[y*MAP+x]===b)bgrid[y*MAP+x]=null;passGen++;mmDirty=true;
  for(const u of units)if(!u.dead&&u.bld===b){u.bld=null;if(u.state==='build')u.state='idle';}}
-function placeBuilding(type,tx,ty,owner){const p=players[owner];const c=BLD[type].cost;if(!afford(p,c))return null;if(canPlace(type,tx,ty,owner,p.isAI?p.ai:null))return null;pay(p,c);
+function placeBuilding(type,tx,ty,owner){const p=players[owner];const c=BLD[type].cost;if(BLD[type].reqAge&&(p.age||0)<BLD[type].reqAge)return null;if(!afford(p,c))return null;if(canPlace(type,tx,ty,owner,p.isAI?p.ai:null))return null;pay(p,c);
  if(BLD[type].gate)for(let y=ty;y<ty+BLD[type].h;y++)for(let x=tx;x<tx+BLD[type].w;x++){const ob=bgrid[y*MAP+x];if(ownWall(ob,owner))replaceWall(ob);}sfx('place',tx+BLD[type].w/2,ty+BLD[type].h/2,owner,BLD[type].wall?1:0);return spawnBld(type,tx,ty,owner,false);}
 
 // ===== surrender & end =====
@@ -352,10 +356,33 @@ function fireVolley(b,S,cands,bldMode){const g=bldMode?{a:0,o:0}:garVolley(b);co
  // your defences engaging counts as combat for your battle music (silent 'atk' marker, throttled like hits)
  {const P=players[b.owner];if(P&&P.isHuman&&time-(P.atkT||-9)>0.25){P.atkT=time;sfx('atk',b.x,b.y,b.owner);}}
  for(let k=0;k<S.n;k++)specs.push([S.atk,bldMode?'fortb':'tower']);
- for(let k=0;k<g.a*2;k++)specs.push([UNITS.archer.atk,'archer']);
+ for(let k=0;k<g.a*2;k++)specs.push([US('archer',b.owner).atk,'archer']);
  for(let k=0;k<g.o;k++)specs.push([GAR_ARROW_DMG,'archer']);
  const cap=projs.length>=PROJ_CAP?Math.min(4,cands.length):VOLLEY_VIS;const made=[],byKey=new Map();
  specs.forEach(([dmg,at],k)=>{const v=cands[k%cands.length][1];const key=v.id+at;
   if(made.length<cap){const p={k:'arrow',sx:b.x,sy:b.y,sz:b.type==='tower'?52:40,t:v,tx:v.x,ty:v.y,life:0,dur:Math.max(.15,dist(b.x,b.y,v.x,v.y)/13),dmg,owner:b.owner,atype:at,att:null,n:1};
    projs.push(p);made.push(p);if(!byKey.has(key))byKey.set(key,p);return;}
   const into=byKey.get(key)||made.find(p=>p.t===v)||made[k%made.length];into.dmg+=dmg;into.n++;});}
+
+// ===== ages =====
+function setAge(P,age){const old=P.age||0;if(age<=old)return;
+ for(const u of units){if(u.dead||u.owner!==P.id)continue;const o=AGE_UNITS[old][u.type].hp,n=AGE_UNITS[age][u.type].hp;if(o!==n){u.hp=u.hp*n/o;u.maxhp=n;}}   // existing units keep their health fraction
+ P.age=age;sfx('ageup',P.keep?P.keep.x:-1,P.keep?P.keep.y:-1,P.id);
+ msg(age===1?'Your kingdom enters the Middle Ages! Trebuchets and siege rams are ready at the Siege Workshop.':'Your kingdom enters the Modern Age! Machine gunners, tanks, infantry and howitzers.','#ffd36a',P.id);
+ for(const q of players)if(q!==P&&q.isHuman)msg(`${P.short||P.name} has entered the ${AGES[age]}.`,'#ffd36a',q.id);}
+// ===== nuclear bomb =====
+function launchNuke(P,lab,x,y){P.nukes--;const d=dist(lab.x,lab.y,x,y);const f={sx:lab.x,sy:lab.y,tx:x,ty:y,t0:time,dur:3+d/40,owner:P.id,boomT:-1};nukeFx.push(f);
+ sfx('siren',x,y,P.id);for(const q of players)if(q.isHuman)msg(q===P?'Nuclear bomb launched!':`${P.short||P.name} has launched a nuclear bomb!`,'#ff6a4a',q.id);return f;}
+function nukeHits(x,y){const R=NUKE.radius,us=[],bs=[];
+ for(const u of units)if(!u.dead&&dist(u.inG?u.inG.x:u.x,u.inG?u.inG.y:u.y,x,y)<=R)us.push(u);
+ for(const b of blds)if(!b.dead&&distTo({x,y},b)<=R)bs.push(b);return{us,bs};}
+function detonate(f){const {us,bs}=nukeHits(f.tx,f.ty);f.boomT=time;nukeQuiet=true;
+ try{for(const u of us){if(u.inG){const g=u.inG;g.gar=g.gar.filter(v=>v!==u);u.inG=null;}killEnt(u,f.owner);}
+  for(const b of bs)if(b.type!=='keep')killEnt(b,f.owner);}finally{nukeQuiet=false;}
+ for(const b of bs)if(b.type==='keep'&&!b.dead)killEnt(b,f.owner);   // keeps last: normal defeat rules (surrender) apply
+ sfx('nuke',f.tx,f.ty,f.owner);mmDirty=true;}
+function updateNukes(){for(const f of nukeFx)if(!f.sat&&f.boomT<0&&time-f.t0>=f.dur)detonate(f);nukeFx=nukeFx.filter(f=>f.sat?time-f.t0<f.dur:(f.boomT<0||time-f.boomT<60));}
+// ===== satellite: lifts the fog for its owner, permanently =====
+function launchSat(P,lab){P.sat=1;nukeFx.push({sat:1,sx:lab.x,sy:lab.y,tx:lab.x,ty:lab.y,t0:time,dur:5,owner:P.id,boomT:-1});sfx('launch',lab.x,lab.y,P.id);
+ if(visMap[P.id])updateVisFor(P.id);msg('Satellite in orbit! The whole map is now revealed to you.','#9fe0ff',P.id);
+ for(const q of players)if(q!==P&&q.isHuman)msg(`${P.short||P.name} has launched a spy satellite.`,'#9fe0ff',q.id);}

@@ -19,9 +19,11 @@ const UNITS={
  spearman:{name:'Spearman',hp:95,atk:8,range:0.7,cd:1.1,speed:1.6,sight:7,cost:{food:50,wood:25},time:13,pop:1,cls:'inf',val:75,desc:'Sturdy infantry. x3 damage vs knights.'},
  archer:{name:'Archer',hp:60,atk:7,range:5.5,cd:1.5,speed:1.6,sight:8,cost:{food:30,wood:40,gold:15},time:14,pop:1,cls:'rng',val:85,proj:'arrow',desc:'Ranged. Good vs infantry, weak vs knights.'},
  knight:{name:'Knight',hp:170,atk:13,range:0.8,cd:1.3,speed:2.7,sight:8,cost:{food:80,gold:75},time:20,pop:2,cls:'cav',val:155,desc:'Fast heavy cavalry. Crushes archers & siege.'},
- catapult:{name:'Catapult',hp:130,atk:34,range:8.5,minRange:2.2,cd:4.5,speed:0.9,sight:12,cost:{wood:150,stone:60,gold:60},time:28,pop:3,cls:'siege',val:270,proj:'stone',splash:1.1,desc:'Long-range siege (range 8.5, sees 12 tiles). Devastating vs buildings.'},
+ catapult:{name:'Catapult',hp:130,atk:34,range:8.5,minRange:2.2,cd:4.5,speed:0.9,sight:12,cost:{wood:150,stone:60,gold:60},time:28,pop:3,cls:'siege',val:270,proj:'stone',splash:1.1,bldPref:true,desc:'Long-range siege (range 8.5, sees 12 tiles). Devastating vs buildings.'},
+ trebuchet:{name:'Trebuchet',hp:220,atk:70,range:12,minRange:3.5,cd:7,speed:0.65,sight:13,cost:{wood:300,stone:150,gold:150},time:40,pop:4,cls:'siege',val:450,proj:'stone',splash:1.4,age:1,bldPref:true,desc:'Middle Ages heavy siege: range 12 (min 3.5), huge stones. Smashes buildings, slow to reload and move.'},
+ ram:{name:'Siege Ram',hp:500,atk:40,range:0.9,cd:3,speed:1.1,sight:6,cost:{wood:250,gold:100},time:30,pop:3,cls:'siege',val:300,age:1,bldPref:true,desc:'Middle Ages armored ram: x5 damage vs buildings, very tough, nearly harmless to units.'},
 };
-const BONUS={peasant:{bld:0.3},spearman:{cav:3,bld:0.5},archer:{inf:1.25,cav:0.7,bld:0.15,siege:0.6},knight:{rng:1.6,siege:1.5,bld:0.5},catapult:{bld:3.5,inf:0.8,cav:0.6,rng:0.8,siege:1.5},tower:{cav:0.9,siege:0.8},fortb:{bld:0.25}};
+const BONUS={trebuchet:{bld:4,inf:0.6,cav:0.5,rng:0.6,siege:1.5},ram:{bld:5,inf:0.15,cav:0.15,rng:0.15,siege:0.5},peasant:{bld:0.3},spearman:{cav:3,bld:0.5},archer:{inf:1.25,cav:0.7,bld:0.15,siege:0.6},knight:{rng:1.6,siege:1.5,bld:0.5},catapult:{bld:3.5,inf:0.8,cav:0.6,rng:0.8,siege:1.5},tower:{cav:0.9,siege:0.8},fortb:{bld:0.25}};
 const ALLRES=['food','wood','stone','gold'];
 const BLD={
  keep:{name:'Keep',w:3,h:3,hp:3000,cost:{},time:1,pop:10,drop:ALLRES,train:['peasant'],shoot:{range:7,atk:10,cd:0.8,n:4},gar:40,sight:10,val:600,desc:'Heart of your kingdom: fires 4 arrows every 0.8 s (+1 per garrisoned unit, +2 per archer). Lose it and you are defeated.'},
@@ -33,14 +35,36 @@ const BLD={
  market:{name:'Market',w:3,h:3,hp:800,cost:{wood:150,stone:50},time:30,income:0.5,sight:5,val:200,desc:'Trade income: +0.5 gold/sec.'},
  barracks:{name:'Barracks',w:3,h:3,hp:1200,cost:{wood:150},time:25,train:['spearman','archer'],sight:6,val:150,desc:'Trains spearmen and archers.'},
  stable:{name:'Stable',w:3,h:3,hp:1200,cost:{wood:150,gold:50},time:30,train:['knight'],sight:6,val:200,desc:'Trains knights.'},
- workshop:{name:'Siege Workshop',w:3,h:3,hp:1100,cost:{wood:200,stone:100,gold:50},time:35,train:['catapult'],sight:6,val:350,desc:'Builds catapults.'},
+ workshop:{name:'Siege Workshop',w:3,h:3,hp:1100,cost:{wood:200,stone:100,gold:50},time:35,train:['catapult','trebuchet','ram'],sight:6,val:350,desc:'Builds catapults; in the Middle Ages also trebuchets and siege rams.'},
  wall:{name:'Wall',w:1,h:1,hp:700,cost:{stone:6},time:4,wall:true,sight:2,val:6,desc:'Blocks movement. Click-drag to build a line.'},
  gate:{name:'Gate',w:1,h:1,hp:900,cost:{stone:20,wood:10},time:6,wall:true,gate:true,sight:3,val:30,desc:'Wall segment your own units can pass.'},
  tower:{name:'Tower',w:1,h:1,hp:900,cost:{stone:100,wood:40},time:22,shoot:{range:7,atk:9,cd:1.4,n:1},gar:6,sight:12,val:140,desc:'Shoots arrows at enemies in range (sees 12 tiles, beyond Fortress range). Garrisons 6 infantry/peasants; each adds an arrow (archers 2).'},
- fortress:{name:'Fortress',w:3,h:3,hp:3600,cost:{stone:400,wood:200,gold:150},time:55,pop:10,drop:ALLRES,shoot:{range:11.5,atk:10,cd:0.8,n:8,bld:true},gar:30,train:['spearman','archer','knight'],sight:12,val:750,desc:'Mighty stronghold: +10 pop, drop-off, trains troops, fires 8 arrows every 0.8 s (twice the Keep, +1 per garrisoned unit, +2 per archer) out to 11.5 tiles (catapult range + 3). With no enemy units in range it shoots enemy buildings, towers first (25 damage/s).'},
+ fortress:{name:'Fortress',w:3,h:3,hp:3600,cost:{stone:400,wood:200,gold:150},time:55,pop:10,drop:ALLRES,shoot:{range:11.5,atk:8,cd:0.8,n:8,bld:true},gar:30,train:['spearman','archer','knight'],sight:12,val:750,desc:'Mighty stronghold: +10 pop, drop-off, trains troops, fires 8 arrows every 0.8 s (twice the Keep, +1 per garrisoned unit, +2 per archer) out to 11.5 tiles (catapult range + 3). Arrows deal 8 damage. With no enemy units in range it shoots enemy buildings, towers first (20 damage/s).'},
+ university:{name:'University',w:3,h:3,hp:4500,cost:{food:5000,wood:5000,stone:5000,gold:5000},time:100,ageUp:1,sight:7,val:1500,desc:'Advances your kingdom to the Middle Ages when finished (kept even if it is later destroyed): trebuchets and siege rams, archers +3 range, spearmen and knights +20% health.'},
+ lab:{name:'Research Lab',w:3,h:3,hp:6000,cost:{food:10000,wood:10000,stone:10000,gold:10000},time:140,ageUp:2,reqAge:1,nuke:true,sight:8,val:3000,desc:'Requires the Middle Ages. Advances your kingdom to the Modern Age when finished: Machine Gunners, Tanks, Infantry and Howitzers (+20% speed, +25% health, +50% damage). Builds nuclear bombs (10,000 of every resource each).'},
 };
 const GAR_T=['peasant','spearman','archer'];const canGar=u=>GAR_T.includes(u.type);
-const BUILD_MENU=['house','farm','lumber','quarry','mine','market','barracks','stable','workshop','wall','gate','tower','fortress'];
+// ===== ages: 0 = start, 1 = Middle Ages (University), 2 = Modern Age (Research Lab). Per-owner stat modifiers on the same type keys.
+const AGES=['Early Age','Middle Ages','Modern Age'];
+const MODERN={
+ archer:{name:'Machine Gunner',proj:'bullet',desc:'Modern ranged infantry: rapid bullets. Good vs infantry, weak vs tanks.'},
+ knight:{name:'Tank',desc:'Modern armor: fast, heavily armored. Crushes gunners & artillery.'},
+ spearman:{name:'Infantry',range:3,proj:'bullet',desc:'Modern riflemen: fire 3 tiles. x3 damage vs tanks.'},
+ trebuchet:{name:'Howitzer',desc:'Modern artillery: range 12 (min 3.5), heavy shells. Smashes buildings.'},
+};
+const NUKE={cost:{food:10000,wood:10000,stone:10000,gold:10000},time:150,radius:30};
+const SAT={cost:{food:3000,wood:3000,stone:3000,gold:3000},time:60,age:2};   // Modern Age satellite: permanent full-map vision
+function ageStats(type,age){const B=UNITS[type],s=Object.assign({},B);
+ if(age>=1){if(type==='archer')s.range=B.range+3;if(type==='spearman'||type==='knight')s.hp=Math.round(B.hp*1.2);}
+ if(age>=2&&MODERN[type]){s.hp=Math.round(s.hp*1.25);s.atk=B.atk*1.5;s.speed=B.speed*1.2;Object.assign(s,MODERN[type]);s.modern=true;}
+ const cm=Math.pow(2,Math.max(0,age-(B.age||0)));if(cm>1){s.cost={};for(const r in B.cost)s.cost[r]=B.cost[r]*cm;}   // unit costs double with each age after the unit first appears
+ return s;}
+const AGE_UNITS=[0,1,2].map(a=>{const o={};for(const k in UNITS)o[k]=ageStats(k,a);return o;});
+const ageOf=o=>{const p=players[o];return (p&&p.age)||0;};
+const US=(type,owner)=>AGE_UNITS[ageOf(owner)][type];   // effective stats of a unit type for this owner
+const uD=u=>AGE_UNITS[ageOf(u.owner)][u.type];
+const bigU=t=>t==='knight'||t==='catapult'||t==='trebuchet'||t==='ram';
+const BUILD_MENU=['house','farm','lumber','quarry','mine','market','barracks','stable','workshop','wall','gate','tower','fortress','university','lab'];
 const KINGDOMS=[
  {name:'Kingdom of Avalon',short:'Avalon',color:[58,120,220],pers:'builder'},
  {name:'Duchy of Ravenmoor',short:'Ravenmoor',color:[214,60,52],pers:'aggressive'},
@@ -62,7 +86,7 @@ const DIFF={easy:{mult:.75,tm:1.4,wm:.75,bonus:0,label:'Easy'},normal:{mult:1,tm
 
 // ===== state =====
 let tiles,resT,resA,treeV,gcls,bgrid,vis,visMap={},resEvents=[];
-let units=[],blds=[],projs=[],parts=[],decals=[],players=[],msgs=[],pings=[];
+let units=[],blds=[],projs=[],parts=[],decals=[],players=[],msgs=[],pings=[],nukeFx=[];
 let time=0,nextId=1,state='menu',difficulty='normal',fogOn=true,showHelp=false,pathBudget=10,pathExp=60000,pathEmerg=4,me=0,gameOver=false;
 let sel=[],groups={},placing=null,wallStart=null,amoveMode=false,lastAlert=null,lastAlertT=-99;
 let cam={x:0,y:0,z:1};
@@ -123,7 +147,7 @@ const DX=[1,-1,0,0,1,1,-1,-1],DY=[0,0,1,-1,1,-1,1,-1];
 // ===== entities =====
 function players_isEnemy(a,b){return a!==b&&b>=0&&a>=0&&!players[b].surrendered&&!players[a].surrendered;}
 const isEnemy=players_isEnemy;
-function spawnUnit(type,x,y,owner){const D=UNITS[type];const u={id:nextId++,kind:'unit',type,owner,x,y,hp:D.hp,maxhp:D.hp,state:'idle',path:null,pend:null,target:null,cd:0,carry:0,carryT:null,job:null,dir:1,anim:Math.random()*10,scanT:Math.random()*.5,amove:null,guard:null,leash:false,lastHit:-99,gt:0,gfail:0,repathT:0,stuckT:0,lx:x,ly:y,aiMission:null};units.push(u);unitById.set(u.id,u);return u;}
+function spawnUnit(type,x,y,owner){const D=US(type,owner);const u={id:nextId++,kind:'unit',type,owner,x,y,hp:D.hp,maxhp:D.hp,state:'idle',path:null,pend:null,target:null,cd:0,carry:0,carryT:null,job:null,dir:1,anim:Math.random()*10,scanT:Math.random()*.5,amove:null,guard:null,leash:false,lastHit:-99,gt:0,gfail:0,repathT:0,stuckT:0,lx:x,ly:y,aiMission:null};units.push(u);unitById.set(u.id,u);return u;}
 function spawnBld(type,tx,ty,owner,complete){const D=BLD[type];
  const b={id:nextId++,kind:'bld',type,owner,tx,ty,w:D.w,h:D.h,x:tx+D.w/2,y:ty+D.h/2,hp:complete?D.hp:D.hp*.1,maxhp:D.hp,built:!!complete,prog:complete?1:0,queue:[],trainT:0,cd:0,rally:null,workers:[],gar:[],lastHit:-99,blocked:false};
  blds.push(b);
@@ -220,7 +244,7 @@ const hasPath=u=>!!(u.pend||(u.path&&u.path.length));
 function moveAlong(u,dt){
  if(u.pend){if(pathBudget>0&&pathExp>0){pathBudget--;u.pw=0;computePath(u);}else if((u.pw=(u.pw||0)+1)>18&&pathEmerg>0){pathEmerg--;u.pw=0;computePath(u);}return false;}
  if(!u.path||!u.path.length)return true;
- const p=u.path[0];const dx=p[0]-u.x,dy=p[1]-u.y,d=Math.hypot(dx,dy);const step=UNITS[u.type].speed*dt;
+ const p=u.path[0];const dx=p[0]-u.x,dy=p[1]-u.y,d=Math.hypot(dx,dy);const step=uD(u).speed*dt;
  if(d>1e-4){u.hx=dx/d;u.hy=dy/d;}
  if(u.yieldT>time&&!(u.ghostT>time)){u.moving=true;return false;}   // giving way to a unit coming the other way (see separation)
  if(Math.abs(dx-dy)>0.01)u.dir=(dx-dy)>0?1:-1;

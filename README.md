@@ -404,9 +404,9 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
   8 arrows every 0.8 s, twice the Keep, out to 11.5 tiles, which is catapult range (8.5) + 3,
   so it outranges siege. When no enemy unit is in range, the Fortress shoots enemy **buildings** in range instead:
   walls, gates and unfinished sites included. Buildings that shoot back (towers, Keeps, Fortresses) go first, then the nearest.
-  Only buildings you can see are targeted. Against buildings only its own 8 arrows fire, at 2.5 damage each (25 damage/s;
-  unfinished sites take the usual 1.5×). That's about one catapult's worth, so it wears down a tower in ~36 s
-  without replacing siege. Keeps and Towers still shoot only at units. Each arrow does 10 damage. Volleys spread over nearby enemies, and a
+  Only buildings you can see are targeted. Against buildings only its own 8 arrows fire, at 2.0 damage each (20 damage/s;
+  unfinished sites take the usual 1.5×). That's a bit under one catapult's worth, so it wears down a tower in ~45 s
+  without replacing siege. Keeps and Towers still shoot only at units. Fortress arrows do 8 damage (since v1.4.0; Keep 10, Tower 9). Volleys spread over nearby enemies, and a
   lone target still takes the full volley.
 - **Garrisons.** Keep 40, Fortress 30, Tower 6. Peasants, spearmen and archers can garrison; knights and catapults cannot.
   Right-click your Keep/Fortress/Tower with them, or press **G** to use the nearest one with room.
@@ -436,6 +436,24 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
   Units walking the same way don't jostle sideways. A unit that makes no progress toward its goal for about 1 s
   briefly ghosts through friendly units. All of this is deterministic.
 - The AI also sends peasants to build every site (walls 1 builder, larger buildings 2–3) and to repair damaged buildings.
+
+## Ages, nukes and satellites (v1.4.0)
+
+- **Early Age → Middle Ages.** Build a **University** (B, U; 5,000 of every resource, 100 s). When it finishes your
+  kingdom enters the Middle Ages, and stays there even if the University is destroyed later. The Siege Workshop can now
+  train **trebuchets** (range 12, min range 3.5, heavy splash vs buildings, slow) and **siege rams** (tough, 5× damage
+  to buildings, nearly harmless to units). Archers get +3 range. Spearmen and knights get +20% health (existing ones too).
+- **Middle Ages → Modern Age.** Build a **Research Lab** (B, R; 10,000 of every resource, 140 s, locked until the
+  Middle Ages). Archers become **Machine Gunners**, knights **Tanks**, spearmen **Infantry** (shoot from 3 tiles), and
+  trebuchets **Howitzers**. All four get +20% speed, +25% health and +50% damage, stacked on the Middle Ages bonuses.
+- **Unit costs double with each age** after the age a unit first appears in (peasant 50 → 100 → 200 food). Units already
+  queued keep the price paid, and cancelling refunds that price.
+- **Nuclear bomb.** Select a finished Research Lab and press **Q** (or *Build Nuke*): 10,000 of every resource, 150 s.
+  Then press **K** (or *Launch*), click anywhere on the map or minimap (fog doesn't matter) and confirm. After a short flight
+  it destroys every unit and building within 30 tiles, yours included. A Keep in the blast means that kingdom is
+  defeated. The AI never builds or launches nukes.
+- **Satellite.** Modern Age, from the Research Lab: 3,000 of every resource, 60 s. After the rocket launch you see the whole
+  map, live, for the rest of the game (also in multiplayer).
 
 ## Controls
 | Action | Input |

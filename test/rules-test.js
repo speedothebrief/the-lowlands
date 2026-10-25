@@ -6,7 +6,7 @@ const fs=require('fs'),vm=require('vm'),path=require('path');
 const html=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
 const src=html.slice(html.indexOf('/*SIM-BEGIN*/'),html.indexOf('/*SIM-END*/'));
 const c=vm.createContext({console});
-vm.runInContext(src+';globalThis.API={POP_MAX,fortBldTarget,updateVisFor,setupGame,sim,applyCmd,nearestRes,spawnUnit,spawnBld,killEnt,makeSnap,canPlace,repairCost,RT,BLD,UNITS,STEP,RES_AMT,get:()=>({units,blds,players,claim,resT,resA,projs,MAP,STARTS,time})};',c);
+vm.runInContext(src+';globalThis.API={POP_MAX,fortBldTarget,updateVisFor,setupGame,sim,applyCmd,nearestRes,spawnUnit,spawnBld,killEnt,makeSnap,canPlace,repairCost,RT,BLD,UNITS,STEP,RES_AMT,US,AGES,NUKE,SAT,get:()=>({units,blds,players,claim,resT,resA,projs,MAP,STARTS,time,nukeFx})};',c);
 const A=c.API;let fails=0;const ok=(v,m)=>{console.log((v?'PASS ':'FAIL ')+m);if(!v)fails++;};
 const run=sec=>{for(let s=0;s<Math.round(sec*30);s++)A.sim(A.STEP);};
 const my=(pid,ty)=>A.get().units.filter(u=>u.owner===pid&&(!ty||u.type===ty));
@@ -221,9 +221,9 @@ console.log('--- Fortress shoots enemy buildings');
  const W=A.spawnBld('wall',fx+8,fy+1,1,true),T=A.spawnBld('tower',fx+10,fy+3,1,true),S=A.spawnBld('house',fx-6,fy+5,1,false);T.cd=1e9;
  for(const b of [W,T,S]){b.hp=b.maxhp=1e6;}A.updateVisFor(0);
  ok(A.fortBldTarget(F,A.BLD.fortress.shoot.range)===T,'Fortress picks the enemy tower (shoots back) before the nearer wall');
- const h0={W:W.hp,T:T.hp};run(8);const dT=h0.T-T.hp;ok(dT>150&&dT<260,`no enemy units in range: Fortress damages the tower (${dT.toFixed(0)} in 8 s, ~25/s)`);
+ const h0={W:W.hp,T:T.hp};run(8);const dT=h0.T-T.hp;ok(dT>120&&dT<210,`no enemy units in range: Fortress damages the tower (${dT.toFixed(0)} in 8 s, ~20/s)`);
  T.dead=true;const s0=S.hp,w0=W.hp;run(6);
- ok(s0-S.hp>150&&W.hp===w0,`then the nearest building: an unfinished site, at 1.5x (${(s0-S.hp).toFixed(0)} in 6 s; farther wall untouched)`);
+ ok(s0-S.hp>130&&W.hp===w0,`then the nearest building: an unfinished site, at 1.5x (${(s0-S.hp).toFixed(0)} in 6 s; farther wall untouched)`);
  S.dead=true;const w1=W.hp;run(6);ok(w1-W.hp>80,`walls are shot too (${(w1-W.hp).toFixed(0)} in 6 s)`);
  const S2=A.spawnBld('house',fx-6,fy+5,1,false);S2.hp=S2.maxhp=1e6;
  const kn=A.spawnUnit('knight',fx+5,fy+1,1);kn.hp=kn.maxhp=1e6;kn.state='hold';const s2=S2.hp,k2=kn.hp;run(4);
@@ -268,4 +268,104 @@ for(const [sz,M] of [['small',96],['medium',144],['large',192]]){A.setupGame(77,
  const ks=g.players.map(p=>p.keep);const spread=Math.hypot(ks[0].x-ks[1].x,ks[0].y-ks[1].y);
  ok(g.MAP===M&&g.resT.length===M*M,`${sz}: ${M}x${M} map, keeps ${spread.toFixed(0)} tiles apart, ${trees} trees, ${gold} gold tiles`);
  run(20);ok(A.get().players.every(p=>!p.surrendered),`${sz}: sim runs`);}
+
+console.log('--- Fortress arrows -20% (Keep and Tower unchanged)');
+ok(A.BLD.fortress.shoot.atk===8&&A.BLD.keep.shoot.atk===10&&A.BLD.tower.shoot.atk===9,'Fortress arrows 8 damage (was 10); Keep 10, Tower 9 unchanged');
+
+console.log('--- ages: University -> Middle Ages, Research Lab -> Modern Age');
+const RICH=v=>({food:v,wood:v,stone:v,gold:v});const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+const finish=b=>{b.prog=1;run(.1);};
+{A.setupGame(9090,[{human:true}],'normal',false);g=A.get();const P=g.players[0],K=P.keep;
+ ok(P.age===0&&g.players.every(p=>p.age===0),'everyone starts in age 0 (Early Age)');
+ ok(same(A.BLD.university.cost,RICH(5000))&&same(A.BLD.lab.cost,RICH(10000))&&A.BLD.lab.reqAge===1,'University costs 5000 of each, Research Lab 10000 of each and needs the Middle Ages');
+ P.res=RICH(30000);
+ const spot=(ty,dx,dy)=>{for(let r=6;r<30;r++)for(let a=0;a<16;a++){const tx=Math.round(K.x+Math.cos(a/16*6.283)*r)+dx,tyy=Math.round(K.y+Math.sin(a/16*6.283)*r)+dy;if(!A.canPlace(ty,tx,tyy,0,null))return[tx,tyy];}};
+ const ls=spot('lab',0,0);A.applyCmd(0,{t:'build',type:'lab',spots:[ls],ids:[]});
+ ok(!A.get().blds.some(b=>b.type==='lab')&&same(P.res,RICH(30000)),'Research Lab cannot be built in the Early Age (nothing placed, nothing paid)');
+ const sp=A.spawnUnit('spearman',K.x+4,K.y+4,0),kn=A.spawnUnit('knight',K.x+5,K.y+4,0),ar=A.spawnUnit('archer',K.x+4,K.y+5,0),tb0=A.spawnUnit('peasant',K.x+5,K.y+5,0);
+ sp.hp=sp.maxhp/2;ok(sp.maxhp===95&&kn.maxhp===170,'Early Age spearman 95 hp, knight 170 hp');
+ const ws=A.spawnBld('workshop',...spot('workshop',0,0),0,true);
+ // costs double with each age: peasant at the Keep
+ let r0=JSON.stringify(P.res);A.applyCmd(0,{t:'train',bid:K.id,ut:'peasant'});ok(P.res.food===30000-50,'Early Age peasant costs 50 food');
+ A.applyCmd(0,{t:'train',bid:ws.id,ut:'trebuchet'});A.applyCmd(0,{t:'train',bid:ws.id,ut:'ram'});ok(ws.queue.length===0&&P.res.wood===30000,'trebuchet and ram cannot be trained in the Early Age');
+ const us=spot('university',0,0);A.applyCmd(0,{t:'build',type:'university',spots:[us],ids:[]});const U=A.get().blds.find(b=>b.type==='university');
+ ok(U&&!U.built&&P.res.stone===30000-5000&&P.res.gold===30000-5000,'University site placed, 5000 of each paid');
+ ok(P.age===0,'no age-up while the University is still a site');finish(U);
+ ok(U.built&&P.age===1,'University completes -> Middle Ages (age 1)');
+ ok(sp.maxhp===114&&Math.abs(sp.hp-57)<.01&&kn.maxhp===204&&kn.hp===204,`existing spearman/knight get +20% max hp, hp scaled proportionally (spearman ${sp.hp}/${sp.maxhp}, knight ${kn.hp}/${kn.maxhp})`);
+ ok(A.US('archer',0).range===8.5&&A.US('archer',1).range===5.5,'Middle Ages archers range 5.5 + 3 = 8.5 (other kingdoms unchanged)');
+ ok(A.US('spearman',0).hp===114&&A.US('knight',0).hp===204&&A.US('archer',0).hp===60,'Middle Ages: spearman 114 hp, knight 204 hp (x1.2), archer unchanged');
+ const sp2=A.spawnUnit('spearman',K.x+3,K.y+6,0);ok(sp2.maxhp===114&&sp2.hp===114,'new spearmen spawn with the boosted hp');
+ const pr=P.res.food;A.applyCmd(0,{t:'train',bid:K.id,ut:'peasant'});ok(pr-P.res.food===100,'Middle Ages peasant costs 2x (100 food)');
+ const w0=P.res.wood,s0=P.res.stone,g0=P.res.gold;A.applyCmd(0,{t:'train',bid:ws.id,ut:'trebuchet'});
+ ok(ws.queue[0]==='trebuchet'&&w0-P.res.wood===300&&s0-P.res.stone===150&&g0-P.res.gold===150,'trebuchet trainable in the Middle Ages at its base cost (300 wood, 150 stone, 150 gold)');
+ const w1=P.res.wood;A.applyCmd(0,{t:'train',bid:ws.id,ut:'ram'});ok(ws.queue[1]==='ram'&&w1-P.res.wood===250,'siege ram trainable in the Middle Ages (250 wood, 100 gold)');
+ const w2=P.res.wood;A.applyCmd(0,{t:'train',bid:ws.id,ut:'catapult'});ok(w2-P.res.wood===300,'catapult costs 2x in the Middle Ages (300 wood)');
+ ok(A.US('spearman',0).cost.food===100&&A.US('knight',0).cost.gold===150,'Middle Ages: spearman 100 food, knight 150 gold (2x)');
+ const tr=A.spawnUnit('trebuchet',K.x+6,K.y+7,0),rm=A.spawnUnit('ram',K.x+7,K.y+7,0);
+ ok(A.UNITS.trebuchet.range>A.UNITS.catapult.range&&A.UNITS.trebuchet.minRange>0&&A.UNITS.trebuchet.speed<A.UNITS.catapult.speed&&A.UNITS.trebuchet.atk>A.UNITS.catapult.atk,'trebuchet: longer range, min range, slower, heavier than the catapult');
+ // ram: very strong vs buildings, weak vs units
+ const eh=A.spawnBld('house',K.tx+12,K.ty+12,1,true);eh.hp=eh.maxhp=1e5;const ek=A.spawnUnit('knight',K.x+12,K.y+9,1);ek.hp=ek.maxhp=1e5;ek.state='hold';
+ rm.x=eh.x-1.6;rm.y=eh.y;A.applyCmd(0,{t:'attack',ids:[rm.id],tid:eh.id});const h0=eh.hp;run(9);const rb=h0-eh.hp;
+ rm.x=ek.x-1;rm.y=ek.y;A.applyCmd(0,{t:'attack',ids:[rm.id],tid:ek.id});const k0=ek.hp;run(9);const ru=k0-ek.hp;
+ ok(rb>400&&ru<rb/4,`ram: ${rb.toFixed(0)} damage to a building vs ${ru.toFixed(0)} to a knight in 9 s`);eh.dead=true;ek.dead=true;run(.1);
+ // queue cancelled after an age-up refunds what was paid
+ const lsC=spot('lab',0,0);A.applyCmd(0,{t:'build',type:'lab',spots:[lsC],ids:[]});const L=A.get().blds.find(b=>b.type==='lab');
+ ok(L&&!L.built,'Research Lab can be placed in the Middle Ages');
+ const bar=A.spawnBld('barracks',...spot('barracks',0,0),0,true);const f0=P.res.food;A.applyCmd(0,{t:'train',bid:bar.id,ut:'spearman'});ok(f0-P.res.food===100,'Middle Ages spearman paid 100 food');
+ finish(L);ok(L.built&&P.age===2,'Research Lab completes -> Modern Age (age 2)');
+ const f1=P.res.food;A.applyCmd(0,{t:'cancel',bid:bar.id,k:0});ok(P.res.food-f1===100,'cancelling it after the next age-up refunds the 100 paid, not the new price');
+ ok(A.US('spearman',0).cost.food===200&&A.US('peasant',0).cost.food===200&&A.US('trebuchet',0).cost.wood===600&&A.US('ram',0).cost.wood===500&&A.US('catapult',0).cost.wood===600,'Modern Age costs: spearman/peasant 4x base, trebuchet/ram 2x their Middle Ages base, catapult 4x');
+ const close=(a,b)=>Math.abs(a-b)<1e-9;const M=t=>A.US(t,0);
+ ok(M('archer').name==='Machine Gunner'&&M('knight').name==='Tank'&&M('spearman').name==='Infantry'&&M('trebuchet').name==='Howitzer'&&A.US('archer',1).name==='Archer','Modern names: Machine Gunner, Tank, Infantry, Howitzer (rivals keep theirs)');
+ ok(close(M('archer').speed,1.6*1.2)&&M('archer').hp===75&&close(M('archer').atk,10.5)&&M('archer').range===8.5,'Machine Gunner: speed x1.2, hp 60x1.25=75, atk 7x1.5=10.5, range 8.5 (Middle Ages +3 kept)');
+ ok(close(M('knight').speed,2.7*1.2)&&M('knight').hp===255&&close(M('knight').atk,19.5),'Tank: speed x1.2, hp 170x1.2x1.25=255, atk 13x1.5=19.5');
+ ok(close(M('spearman').speed,1.6*1.2)&&M('spearman').hp===Math.round(114*1.25)&&close(M('spearman').atk,12)&&M('spearman').range===3,'Infantry: speed x1.2, hp 95x1.2x1.25=143, atk 8x1.5=12, range 3');
+ ok(close(M('trebuchet').speed,.65*1.2)&&M('trebuchet').hp===275&&close(M('trebuchet').atk,105)&&M('trebuchet').range===12,'Howitzer: speed x1.2, hp 220x1.25=275, atk 70x1.5=105, range 12');
+ ok(M('peasant').hp===40&&M('catapult').atk===34&&M('ram').hp===500,'peasants, catapults and rams keep their stats');
+ ok(kn.maxhp===255&&kn.hp===255&&tr.maxhp===275&&tr.hp===275&&ar.maxhp===75,`existing units convert too (knight ${kn.maxhp}, trebuchet ${tr.maxhp}, archer ${ar.maxhp})`);
+ ok(Math.abs(sp.hp/sp.maxhp-.5)<.001,'damaged spearman keeps its health fraction through both age-ups');
+ const sn=A.makeSnap();ok(sn.P[0][12]===2&&sn.P[1][12]===0,'snapshot carries each kingdom\'s age');
+ // satellite
+ ok(same(A.SAT.cost,RICH(3000)),'satellite costs 3000 of each');
+ P.res=RICH(20000);A.applyCmd(0,{t:'buildsat',bid:L.id});ok(L.satQ&&P.res.food===17000,'buildsat at the Lab charges 3000 of each');
+ {const r=P.res.gold;A.applyCmd(0,{t:'buildsat',bid:L.id});ok(r-P.res.gold<3000,'only one satellite at a time');}
+ let V=A.updateVisFor(0);const M0=g.MAP;ok(V[(M0-3)*M0+(M0-3)]!==2||!A.get().players[0].sat,'before launch the far corner is not live-visible');
+ L.satT=A.SAT.time-.05;run(.2);V=A.updateVisFor(0);let all=true;for(let i=0;i<V.length;i++)if(V[i]!==2){all=false;break;}
+ ok(P.sat===1&&all,'satellite in orbit: every tile visible to its owner');ok(A.makeSnap().P[0][14]===1,'snapshot carries the satellite flag (client fog lifts in multiplayer)');
+ {const r=P.res.gold;A.applyCmd(0,{t:'buildsat',bid:L.id});ok(!L.satQ&&r-P.res.gold<3000,'cannot build a second satellite');}
+ L.dead=true;run(.1);V=A.updateVisFor(0);ok(V.every(v=>v===2),'vision stays even if the Lab is destroyed');}
+{A.setupGame(9191,[{human:true}],'normal',true);g=A.get();const P=g.players[0];P.age=1;const L=A.spawnBld('lab',P.keep.tx+8,P.keep.ty,0,true);P.res=RICH(5000);A.applyCmd(0,{t:'buildsat',bid:L.id});ok(!L.satQ&&P.res.food===5000,'satellite needs the Modern Age');}
+
+{const sp=(age)=>{A.setupGame(7171,[{human:true}],'normal',false);const P=A.get().players[0];P.age=age;const u=A.spawnUnit('knight',P.keep.x+3,P.keep.y+9,0);const x0=u.x;A.applyCmd(0,{t:'move',ids:[u.id],x:u.x+(u.x<70?14:-14),y:u.y});run(3);return Math.abs(u.x-x0);};
+ const d0=sp(0),d2=sp(2);ok(d2>d0*1.12,`Tank moves ~20% faster than an Early Age knight (${d2.toFixed(2)} vs ${d0.toFixed(2)} tiles in 3 s)`);}
+{A.setupGame(7272,[{human:true}],'normal',false);const g2=A.get(),P=g2.players[0];P.age=2;const c=g2.MAP/2;
+ const inf=A.spawnUnit('spearman',c,c,0),foe=A.spawnUnit('spearman',c+2.6,c,1);foe.hp=foe.maxhp=1e5;foe.state='hold';inf.state='hold';
+ A.applyCmd(0,{t:'attack',ids:[inf.id],tid:foe.id});const fh=foe.hp,x0=inf.x;let shot=false;for(let s=0;s<90;s++){A.sim(A.STEP);if(g2.projs.some(p=>p.k==='bullet'&&p.owner===0))shot=true;}
+ ok(shot&&foe.hp<fh&&Math.abs(inf.x-x0)<.3,`Infantry shoots bullets at a target 2.6 tiles away without closing in (${(fh-foe.hp).toFixed(0)} damage in 3 s)`);}
+console.log('--- nuclear bomb');
+{A.setupGame(5151,[{human:true}],'normal',true);g=A.get();const P=g.players[0],K=P.keep;P.age=2;
+ const L=A.spawnBld('lab',K.tx+8,K.ty-2,0,true);P.res=RICH(9999);A.applyCmd(0,{t:'buildnuke',bid:L.id});ok(!L.nukeQ,'cannot build a nuke with 9999 of each');
+ P.res=RICH(25000);A.applyCmd(0,{t:'buildnuke',bid:L.id});ok(L.nukeQ&&same(P.res,RICH(15000)),'building a nuke costs 10000 of each');ok(same(A.NUKE.cost,RICH(10000))&&A.NUKE.radius===30,'nuke: 10000 of each, 30-tile radius');
+ A.applyCmd(0,{t:'nuke',bid:L.id,x:50,y:50});ok(A.get().nukeFx.length===0,'cannot launch before the bomb is finished');
+ L.nukeT=A.NUKE.time-.05;run(.2);ok(P.nukes===1&&!L.nukeQ,'bomb finished: 1 in stock');ok(same(P.res,RICH(15000)),'launching costs nothing extra');
+ const E=g.players[1].keep;const tx=E.x,ty=E.y;   // enemy Keep (hidden by fog) at ground zero
+ const dir=(K.x<tx)?-1:1;const put=(t,d,o)=>A.spawnUnit(t,tx+dir*d,ty,o);
+ const inside=[put('knight',29,1),put('archer',29.5,0),put('peasant',10,2),put('catapult',0.5,1)],outside=[put('knight',31,3),put('archer',30.6,0),put('spearman',33,2)];for(const u of inside.concat(outside)){u.hp=u.maxhp=1e6;u.state='hold';}
+ const tIn=A.spawnBld('tower',Math.floor(tx+dir*28.4),Math.floor(ty),2,true),tOut=A.spawnBld('tower',Math.floor(tx+dir*31.6),Math.floor(ty)+1,0,true);
+ const others=A.get().blds.filter(b=>b.owner===1&&!b.dead);const r0=JSON.stringify(P.res);
+ A.applyCmd(0,{t:'nuke',bid:L.id,x:tx,y:ty});const F=A.get().nukeFx[0];ok(F&&P.nukes===0,'launch: bomb in flight, stock 0 (fog ignored: target is not visible)');
+ ok(!E.dead&&inside.every(u=>!u.dead),'nothing is destroyed while it flies');run(F.dur+.3);
+ ok(inside.every(u=>u.dead),'all units within 30 tiles are destroyed (enemy, own, every owner)');
+ ok(outside.every(u=>!u.dead),'units beyond 30 tiles survive '+outside.map(u=>u.type+(u.dead?' dead ':' ok ')+Math.hypot(u.x-tx,u.y-ty).toFixed(1)).join(','));
+ ok(tIn.dead&&!tOut.dead,'buildings within 30 tiles are destroyed, beyond 30 spared');
+ ok(E.dead&&g.players[1].surrendered,'the enemy Keep at ground zero is destroyed -> that kingdom is defeated');
+ const left=A.get().units.concat(A.get().blds).filter(e=>!e.dead&&Math.hypot(e.x-tx,e.y-ty)<29);ok(left.length===0,'nothing left standing inside the blast');
+ A.applyCmd(0,{t:'nuke',bid:L.id,x:20,y:20});ok(A.get().nukeFx.filter(f=>f.boomT<0).length===0,'no second launch without another bomb');
+ // own keep in range -> own defeat
+ A.setupGame(5252,[{human:true}],'normal',false);g=A.get();const Q=g.players[0];Q.age=2;Q.nukes=1;const L2=A.spawnBld('lab',Q.keep.tx+8,Q.keep.ty,0,true);
+ A.applyCmd(0,{t:'nuke',bid:L2.id,x:Q.keep.x+5,y:Q.keep.y});run(A.get().nukeFx[0].dur+.3);ok(Q.keep.dead&&L2.dead&&Q.surrendered,'nuking your own base destroys your Keep and Lab: normal defeat rules');
+ // AI never launches
+ A.setupGame(5353,[{human:true}],'normal',false);g=A.get();for(const p of g.players){p.age=2;p.nukes=3;A.spawnBld('lab',p.keep.tx+(p.keep.tx<40?6:-6),p.keep.ty,p.id,true);}run(30);
+ ok(A.get().nukeFx.length===0&&g.players.slice(1).every(p=>p.nukes===3),'AI kingdoms never launch nukes');}
 console.log(fails?fails+' FAILURES':'ALL RULES TESTS PASSED');process.exit(fails?1:0);

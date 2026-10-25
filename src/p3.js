@@ -25,7 +25,7 @@ function aiThink(p){
  const myB=blds.filter(b=>b.owner===p.id&&!b.dead);const count=ty=>myB.filter(b=>b.type===ty).length;
  // --- peasants
  const peasTarget=Math.min(P.peas,6+Math.floor(t/11));const qp=myB.reduce((s,b)=>s+b.queue.filter(q=>q==='peasant').length,0);
- if(nPeas+qp<peasTarget&&k.queue.length<2&&affordRes(p,UNITS.peasant.cost,null))enqueue(k,'peasant');
+ if(nPeas+qp<peasTarget&&k.queue.length<2&&affordRes(p,US('peasant',p.id).cost,null))enqueue(k,'peasant');
  // --- gather assignment
  const cnt={food:0,wood:0,stone:0,gold:0};for(const u of peas){if(u.job)cnt[u.job.farm?'food':u.job.rt]++;}
  for(const u of peas){if(u.state!=='idle')continue;if(u.job){if(u.job.farm||u.job.rt){u.bld=null;if(resumeWork(u))continue;}u.job=null;}
@@ -75,7 +75,7 @@ function aiThink(p){
   const tot=army.length+1;
   for(const b of myB){const D=BLD[b.type];if(!b.built||!D.train||b.type==='keep'||b.queue.length>=2)continue;
    let best=null,bs=-1e9;for(const ut of D.train){if(ut==='peasant')continue;let w=P.comp[ut]||0;if(ut==='catapult')w=t>P.siegeT*TM?P.siegeW+.05:0;if(w<=0)continue;const s=w*tot-(tc[ut]||0);if(s>bs){bs=s;best=ut;}}
-   if(best&&affordRes(p,UNITS[best].cost,A.saveFor)){enqueue(b,best);tc[best]=(tc[best]||0)+1;}}}
+   if(best&&affordRes(p,US(best,p.id).cost,A.saveFor)){enqueue(b,best);tc[best]=(tc[best]||0)+1;}}}
  // --- defense
  let threat=null;for(const b of myB)if(t-b.lastHit<4){threat={x:b.x,y:b.y};break;}
  if(!threat)queryUnits(k.x,k.y,15,v=>{if(!threat&&!v.dead&&isEnemy(p.id,v.owner)&&v.type!=='peasant'&&dist(v.x,v.y,k.x,k.y)<15)threat={x:v.x,y:v.y};});
@@ -108,9 +108,9 @@ function aiThink(p){
 function markVis(V,cx,cy,r){const x0=Math.max(0,Math.floor(cx-r)),x1=Math.min(MAP-1,Math.floor(cx+r)),y0=Math.max(0,Math.floor(cy-r)),y1=Math.min(MAP-1,Math.floor(cy+r));const r2=r*r;
  for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const dx=x+.5-cx,dy=y+.5-cy;if(dx*dx+dy*dy<=r2)V[y*MAP+x]=2;}}
 function updateVisFor(pid){let V=visMap[pid];if(!V)V=visMap[pid]=new Uint8Array(MAP*MAP);
- const P=players[pid];if(!fogOn||(P&&P.surrendered)){V.fill(2);return V;}
+ const P=players[pid];if(!fogOn||(P&&(P.surrendered||P.sat))){V.fill(2);return V;}
  for(let i=0;i<V.length;i++)if(V[i]===2)V[i]=1;
- for(const u of units)if(u.owner===pid&&!u.dead&&!u.inG)markVis(V,u.x,u.y,UNITS[u.type].sight);
+ for(const u of units)if(u.owner===pid&&!u.dead&&!u.inG)markVis(V,u.x,u.y,uD(u).sight);
  // finished buildings give sight; an unfinished site (b.built false) reveals only its own footprint, so a far-away
  // foundation can't be used to scout. Builders still see with their own unit sight. Vision turns on once it is built.
  for(const b of blds){if(b.owner!==pid||b.dead)continue;if(b.built)markVis(V,b.x,b.y,(BLD[b.type].sight||4)+b.w/2);
@@ -145,10 +145,10 @@ function applyCmd(pid,c){const P=players[pid];if(!P||P.surrendered||!c)return;
  case 'unload':{if(myB){if(!ejectAll(myB,false))errMsg('Nobody is garrisoned here.','#ff9a8a',pid);}else for(const b of blds)if(b.owner===pid)ejectAll(b,false);break;}
  case 'bell':ringBell(pid,c.on);break;
  case 'stop':for(const u of mine){releaseClaim(u);u.bld=null;u.state='idle';u.path=null;u.pend=null;u.target=null;u.amove=null;u.job=null;u.guard={x:u.x,y:u.y};}break;
- case 'train':if(myB&&myB.built&&BLD[myB.type].train&&BLD[myB.type].train.includes(c.ut)){if(!enqueue(myB,c.ut))errMsg(myB.queue.length>=5?'Queue is full.':'Not enough resources.','#ff9a8a',pid);}break;
- case 'cancel':if(myB&&c.k>=0&&c.k<myB.queue.length){const ut=myB.queue.splice(c.k,1)[0];refund(P,UNITS[ut].cost);if(c.k===0){myB.trainT=0;myB.blocked=false;}}break;
+ case 'train':if(myB&&myB.built&&BLD[myB.type].train&&BLD[myB.type].train.includes(c.ut)){if(UNITS[c.ut].age&&(P.age||0)<UNITS[c.ut].age){errMsg(`${UNITS[c.ut].name} requires the ${AGES[UNITS[c.ut].age]} (build a University).`,'#ff9a8a',pid);break;}if(!enqueue(myB,c.ut))errMsg(myB.queue.length>=5?'Queue is full.':'Not enough resources.','#ff9a8a',pid);}break;
+ case 'cancel':if(myB&&c.k>=0&&c.k<myB.queue.length){const aligned=myB.qc&&myB.qc.length===myB.queue.length;const ut=myB.queue.splice(c.k,1)[0];const pc=aligned?myB.qc.splice(c.k,1)[0]:US(ut,pid).cost;if(!aligned)myB.qc=null;refund(P,pc);if(c.k===0){myB.trainT=0;myB.blocked=false;}}break;
  case 'rally':if(myB){const tx=Math.floor(c.x),ty=Math.floor(c.y);const r={x:+c.x,y:+c.y};if(inb(tx,ty)){if(resT[ty*MAP+tx])r.res=[tx,ty];const fb=bgrid[ty*MAP+tx];if(fb&&fb.type==='farm'&&fb.owner===pid)r.farm=fb;}myB.rally=r;}break;
- case 'build':{if(!BUILD_MENU.includes(c.type)||!Array.isArray(c.spots))break;const sites=[];for(const s of c.spots.slice(0,120)){const b=placeBuilding(c.type,s[0]|0,s[1]|0,pid);if(b)sites.push(b);else if(!afford(P,BLD[c.type].cost)){errMsg('Not enough resources.','#ff9a8a',pid);break;}}
+ case 'build':{if(!BUILD_MENU.includes(c.type)||!Array.isArray(c.spots))break;if(BLD[c.type].reqAge&&(P.age||0)<BLD[c.type].reqAge){errMsg(`The ${BLD[c.type].name} requires the ${AGES[BLD[c.type].reqAge]} (build a University first).`,'#ff9a8a',pid);break;}const sites=[];for(const s of c.spots.slice(0,120)){const b=placeBuilding(c.type,s[0]|0,s[1]|0,pid);if(b)sites.push(b);else if(!afford(P,BLD[c.type].cost)){errMsg('Not enough resources.','#ff9a8a',pid);break;}}
   if(!sites.length){if(c.spots.length===1)errMsg('Cannot build there.','#ff9a8a',pid);break;}
   if(!sendBuilders(pid,sites,mine.filter(u=>u.type==='peasant'))&&P.isHuman)msg('Construction site placed — no idle peasant: select peasants and right-click it to build.','#ffd27a',pid);break;}
  case 'repair':{const b=byId.get(c.bid);const peas=mine.filter(u=>u.type==='peasant');if(!b||b.owner!==pid||!needsWork(b)){moveGroup(mine,+c.x,+c.y,false);break;}for(const u of peas)assignBuild(u,b);moveGroup(mine.filter(u=>u.type!=='peasant'),b.x,b.y+b.h/2+2,false);break;}
@@ -162,6 +162,17 @@ function applyCmd(pid,c){const P=players[pid];if(!P||P.surrendered||!c)return;
  case 'kill':{// Del on own units: they die (normal death, no refund); claims, garrison reservations and population free up
   const ids=Array.isArray(c.ids)?c.ids.slice(0,400):[];for(const id of ids){const u=byId.get(id);if(!u||u.dead||u.kind!=='unit'||u.owner!==pid)continue;
    if(u.inG){const gb=u.inG,i=gb.gar.indexOf(u);if(i>=0)gb.gar.splice(i,1);u.inG=null;}u.garB=null;killEnt(u,-1);u.bld=null;}break;}
+ case 'buildnuke':{if(!myB||!BLD[myB.type].nuke||!myB.built)break;if(myB.nukeQ){errMsg('A nuclear bomb is already being built here.','#ff9a8a',pid);break;}
+  if(!afford(P,NUKE.cost)){errMsg('A nuclear bomb costs 10,000 of every resource.','#ff9a8a',pid);break;}pay(P,NUKE.cost);myB.nukeQ=1;myB.nukeT=0;sfx('queued',myB.x,myB.y,pid);break;}
+ case 'buildsat':{if(!myB||!BLD[myB.type].nuke||!myB.built)break;if((P.age||0)<SAT.age){errMsg('The satellite needs the Modern Age.','#ff9a8a',pid);break;}
+  if(P.sat||blds.some(b=>!b.dead&&b.owner===pid&&b.satQ)){errMsg(P.sat?'Your satellite is already in orbit.':'A satellite is already being built.','#ff9a8a',pid);break;}
+  if(!afford(P,SAT.cost)){errMsg('A satellite costs 3,000 of every resource.','#ff9a8a',pid);break;}pay(P,SAT.cost);myB.satQ=1;myB.satT=0;sfx('queued',myB.x,myB.y,pid);break;}
+ case 'cancelsat':{if(myB&&myB.satQ){myB.satQ=0;myB.satT=0;refund(P,SAT.cost);}break;}
+ case 'cancelnuke':{if(myB&&myB.nukeQ){myB.nukeQ=0;myB.nukeT=0;refund(P,NUKE.cost);}break;}
+ case 'nuke':{const x=+c.x,y=+c.y;if(!(x>=0&&y>=0&&x<MAP&&y<MAP))break;   // any point on the map, fog ignored
+  const lab=myB&&BLD[myB.type].nuke&&myB.built?myB:blds.find(b=>!b.dead&&b.owner===pid&&b.built&&BLD[b.type].nuke);
+  if(!lab){errMsg('Launching needs a finished Research Lab.','#ff9a8a',pid);break;}if(!((P.nukes||0)>0)){errMsg('No nuclear bomb ready.','#ff9a8a',pid);break;}
+  launchNuke(P,lab,x,y);break;}
  case 'trade':{const r=c.res,amt=Math.floor(+c.amt);if(!TRADE_RES.includes(r)||!(amt>0)||amt>100000||amt%TRADE_RATE)break;
   if(!myB||myB.type!=='market'||!myB.built){errMsg('Trading needs a finished Market.','#ff9a8a',pid);break;}
   if(c.dir==='sell'){if(P.res[r]<amt){errMsg(`Not enough ${r} to sell.`,'#ff9a8a',pid);break;}P.res[r]-=amt;P.res.gold+=amt/TRADE_RATE;sfx('trade',myB.x,myB.y,pid);}
@@ -174,9 +185,9 @@ const TRADE_RATE=4,TRADE_RES=['food','wood','stone'];
 let simAcc=0,visT=0,mmT=0,winT=0;
 function setupGame(gseed,slots,diff,fog,size){
  difficulty=diff||'normal';fogOn=fog!==false;setMapSize(size);genMap(gseed);
- passGen++;units=[];blds=[];projs=[];parts=[];decals=[];sel=[];groups={};msgs=[];pings=[];resEvents=[];sfxEv=[];claim=new Int32Array(MAP*MAP);unitById.clear();visMap={};time=0;gameOver=false;nextId=1;
+ passGen++;units=[];blds=[];projs=[];parts=[];nukeFx=[];decals=[];sel=[];groups={};msgs=[];pings=[];resEvents=[];sfxEv=[];claim=new Int32Array(MAP*MAP);unitById.clear();visMap={};time=0;gameOver=false;nextId=1;
  bgrid=new Array(MAP*MAP).fill(null);
- players=KINGDOMS.map((k,i)=>{const sl=slots&&slots[i]||{human:i===0};return{id:i,name:k.name,short:k.short,color:k.color,pers:k.pers,isHuman:!!sl.human,isAI:!sl.human,pname:sl.name||'',res:{food:300,wood:250,stone:150,gold:100},pop:0,popCap:10,surrendered:false,bell:false,lastAttackedBy:-1,lastAttackedT:-99,stats:{trained:0,killed:0,lost:0},ai:null,keep:null};});
+ players=KINGDOMS.map((k,i)=>{const sl=slots&&slots[i]||{human:i===0};return{id:i,name:k.name,short:k.short,color:k.color,pers:k.pers,isHuman:!!sl.human,isAI:!sl.human,pname:sl.name||'',res:{food:300,wood:250,stone:150,gold:100},pop:0,popCap:10,surrendered:false,bell:false,lastAttackedBy:-1,lastAttackedT:-99,stats:{trained:0,killed:0,lost:0},ai:null,keep:null,age:0,nukes:0,sat:0};});
  players.forEach((p,i)=>{const st=STARTS[i];p.keep=spawnBld('keep',st[0]-1,st[1]-1,i,true);
   const toC=Math.atan2(MAP/2-st[1],MAP/2-st[0]);
   for(let k=0;k<5;k++){const a=toC+(k-2)*.5;const u=spawnUnit('peasant',st[0]+.5+Math.cos(a)*2.8,st[1]+.5+Math.sin(a)*2.8,i);u.guard={x:u.x,y:u.y};}
@@ -192,7 +203,7 @@ function sim(dt){
  for(const p of players)p.popCap=Math.min(POP_MAX,p.popCap);
  for(const b of blds)if(!b.dead)updateBld(b,dt);
  for(const u of units)if(!u.dead&&!u.inG)updateUnit(u,dt);
- separation();updateProjs(dt);
+ separation();updateProjs(dt);updateNukes();
  for(const q of parts){q.life-=dt;q.x+=q.vx*dt;q.y+=q.vy*dt;q.z+=q.vz*dt;q.vz-=80*dt;if(q.z<0){q.z=0;q.vx*=.5;q.vy*=.5;}}
  parts=parts.filter(q=>q.life>0);if(parts.length>1500)parts.splice(0,parts.length-1500);
  decals=decals.filter(d=>time-d.t<(d.k==='corpse'?12:90));

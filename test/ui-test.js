@@ -43,8 +43,17 @@ async function trackDrawn(pg,ms,order){return pg.evaluate(async(ms,order)=>{cons
  await press('b');ok(await p.evaluate(()=>buildMenuOpen),'B opens the build menu');
  await press('h');ok(await p.evaluate(()=>placing==='house'&&!buildMenuOpen&&!placeSticky),'B, H → placing a House');
  await press('Escape');ok(await p.evaluate(()=>placing===null),'Esc cancels placement');
+ // ---- v1.4 ages: University + Research Lab buttons (Lab locked until the Middle Ages)
+ await sleep(150);const nb=await p.evaluate(()=>{const f=n=>uiBtns.find(b=>b.tip&&b.tip.t&&b.tip.t.startsWith(n));const u=f('University'),l=f('Research Lab');return{u:u&&[u.x,u.y,u.w,u.h,u.tip.t],l:l&&[l.x,l.y,l.w,l.h,l.tip.t],age:players[me].age,lk:bldLocked('lab'),ul:bldLocked('university')};});
+ ok(nb.u&&nb.l&&nb.u[1]>=800-150&&nb.l[1]>=800-150,'build panel shows University and Research Lab buttons '+JSON.stringify([nb.u&&nb.u[4],nb.l&&nb.l[4]]));
+ ok(nb.age===0&&nb.lk&&!nb.ul&&/LOCKED/.test(nb.l[4])&&!/LOCKED/.test(nb.u[4]),'Early Age: Research Lab button is locked (🔒, LOCKED tooltip), University is not');
+ await p.mouse.click(nb.l[0]+20,nb.l[1]+20);await sleep(120);ok(await p.evaluate(()=>placing===null),'clicking the locked Research Lab does not start placement');
+ await press('b');await press('r');ok(await p.evaluate(()=>placing===null),'B, R refuses the Research Lab before the Middle Ages');await p.evaluate(()=>{buildMenuOpen=false;});
+ await p.mouse.move(nb.u[0]+20,nb.u[1]+20);await sleep(80);await p.mouse.click(nb.u[0]+20,nb.u[1]+20);await sleep(120);const pu=await p.evaluate(()=>[placing,state]);ok(pu[0]==='university','clicking University starts placing it '+JSON.stringify(pu));await press('Escape');
+ await p.evaluate(()=>{players[me].age=1;});await sleep(150);ok(await p.evaluate(()=>!bldLocked('lab')&&/^Research Lab/.test((uiBtns.find(b=>b.tip&&b.tip.t&&b.tip.t.startsWith('Research Lab'))||{tip:{t:''}}).tip.t)&&!/LOCKED/.test(uiBtns.find(b=>b.tip&&b.tip.t&&b.tip.t.startsWith('Research Lab')).tip.t)),'Middle Ages: Research Lab unlocks');
  const all=[];for(const [t,k] of Object.entries(keymap.map)){await press('b');await press(k.toLowerCase());all.push(await p.evaluate(t=>placing===t,t));await press('Escape');}
- ok(all.every(Boolean),'B + each letter selects the right building (all 13)');
+ ok(all.every(Boolean),'B + each letter selects the right building (all '+Object.keys(keymap.map).length+')');
+ await p.evaluate(()=>{players[me].age=0;});
  const cam0=await p.evaluate(()=>[cam.x,cam.y]);await press('b');await press('w');await sleep(200);const cam1=await p.evaluate(()=>[cam.x,cam.y,placing]);
  ok(cam1[2]==='workshop'&&Math.abs(cam1[1]-cam0[1])<1,'B, W picks the Workshop without panning the camera');await press('Escape');
  await press('b');await press('M');const mu=await p.evaluate(()=>[placing,AU.S.muted]);ok(mu[0]==='market'&&!mu[1],'B, M picks the Market and does not toggle mute');await press('Escape');

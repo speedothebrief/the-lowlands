@@ -78,6 +78,11 @@ const AU=(()=>{
   bow:[.05,5,.32,0,1,(o,t)=>{noise(o,'bandpass',3200,800,1.5,t,.012,.35,.14);tone(o,'triangle',170,150,t,.001,.12,.08);return .18;}],
   launch:[.2,3,.6,0,1,(o,t)=>{tone(o,'sawtooth',85,60,t,.02,.12,.25,['bandpass',400,3]);noise(o,'bandpass',1500,350,1,t+.05,.03,.4,.35);tone(o,'sine',90,40,t,.002,.45,.15);return .45;}],
   boom:[.15,4,.75,0,1,(o,t)=>{noise(o,'lowpass',1000,180,.8,t,.002,.9,.6);tone(o,'sine',75,30,t,.002,.8,.5);return .65;}],
+  gun:[.04,5,.3,0,1,(o,t,e)=>{noise(o,'highpass',e?900:1800,e?600:1200,1,t,.001,.6,e?.12:.05);tone(o,'square',e?90:160,60,t,.001,.2,e?.12:.04,['lowpass',1200]);return e?.2:.08;}],
+  siren:[3,1,.55,0,0,(o,t)=>{for(let i=0;i<3;i++){tone(o,'sawtooth',420,780,t+i*.9,.4,.1,.45,['lowpass',1600]);}return 2.8;}],
+  nuke:[2,1,1,0,0,(o,t)=>{noise(o,'lowpass',2400,60,.6,t,.005,1,4.5);tone(o,'sine',60,22,t,.005,1,4);noise(o,'bandpass',300,80,.8,t+.3,.4,.6,5);return 6;}],
+  ageup:[2,1,.7,1,0,(o,t)=>{[55,60,64,67,72].forEach((n,i)=>{tone(o,'triangle',mtof(n),0,t+i*.13,.01,.22,.4);tone(o,'sawtooth',mtof(n),0,t+i*.13,.01,.05,.4,['lowpass',1800]);});
+   for(const n of [60,64,67,72,76])tone(o,'triangle',mtof(n),0,t+.75,.05,.15,2);for(const [k,p] of [[1,.12],[2.76,.05]])tone(o,'sine',mtof(84)*k,0,t+.75,.003,p,2.5);return 3;}],
   bhit:[.12,3,.45,0,1,(o,t)=>{noise(o,'lowpass',700,300,1,t,.002,.6,.12);tone(o,'sine',110,65,t,.002,.4,.1);return .15;}],
   fall:[.3,2,.85,0,1,(o,t,e)=>{const big=(e||2)/3;noise(o,'lowpass',500,120,.7,t,.03,.9,1.2+big);tone(o,'sine',55,30,t,.01,.7,1+big);
    for(let i=0;i<8;i++)noise(o,'bandpass',R(600,1800),0,3,t+R(.05,1),.002,.25,.06);return 2;}],
