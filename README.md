@@ -404,9 +404,9 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
   8 arrows every 0.8 s, twice the Keep, out to 11.5 tiles, which is catapult range (8.5) + 3,
   so it outranges siege. When no enemy unit is in range, the Fortress shoots enemy **buildings** in range instead:
   walls, gates and unfinished sites included. Buildings that shoot back (towers, Keeps, Fortresses) go first, then the nearest.
-  Only buildings you can see are targeted. Against buildings only its own 8 arrows fire, at 2.0 damage each (20 damage/s;
-  unfinished sites take the usual 1.5×). That's a bit under one catapult's worth, so it wears down a tower in ~45 s
-  without replacing siege. Keeps and Towers still shoot only at units. Fortress arrows do 8 damage (since v1.4.0; Keep 10, Tower 9). Volleys spread over nearby enemies, and a
+  Only buildings you can see are targeted. Against buildings only its own 8 arrows fire, at 1.5 damage each (15 damage/s;
+  unfinished sites take the usual 1.5×). That's a bit over half a catapult's worth, so it wears down a tower in ~60 s
+  without replacing siege. Keeps and Towers still shoot only at units. Fortress arrows do 6 damage (10 before v1.4.0, 8 in v1.4.0; Keep 10, Tower 9). Volleys spread over nearby enemies, and a
   lone target still takes the full volley.
 - **Garrisons.** Keep 40, Fortress 30, Tower 6. Peasants, spearmen and archers can garrison; knights and catapults cannot.
   Right-click your Keep/Fortress/Tower with them, or press **G** to use the nearest one with room.
@@ -454,6 +454,30 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
   defeated. The AI never builds or launches nukes.
 - **Satellite.** Modern Age, from the Research Lab: 3,000 of every resource, 60 s. After the rocket launch you see the whole
   map, live, for the rest of the game (also in multiplayer).
+
+### The AI and the ages (v1.4.1)
+
+- **Advancing.** AI kingdoms now build the University and the Research Lab themselves. From a set game time they start
+  *saving*: a share of their income (75% in the Early Age, 60% in the Middle Ages, 30% while their Keep is under attack)
+  goes into a bank for the age building, while the rest keeps paying for the army and economy, so they never stall.
+  While saving they train extra peasants, lean their gatherers towards the resources they are short of, add a Market,
+  mines and quarries, and sell surplus at the Market for gold. They start earlier if they can already afford it.
+  | Difficulty | Highest age | Starts saving for the University | Starts saving for the Research Lab |
+  |---|---|---|---|
+  | Easy | Middle Ages | 20 min | never |
+  | Normal | Modern Age | 12 min | 20 min |
+  | Hard | Modern Age | 8 min | 15 min |
+
+  Builder kingdoms start 15% sooner, aggressive ones 15% later. 25,000 resources is a lot, so in a typical game the AI
+  reaches the Middle Ages after roughly 20–45 minutes on a medium map (later on small maps, which have less stone and
+  gold) and the Modern Age only in long games.
+- **Siege.** In the Middle Ages the AI keeps a few trebuchets and siege rams in its Siege Workshop's queue and sends
+  them with its attack waves. Rams march with two escorts and go for towers, Fortresses, the Keep, gates and walls;
+  trebuchets stay behind the front line and pull back from enemy units.
+- **Costs.** The AI weighs what to train by the current (doubled) price, so it fields fewer, stronger units in later ages.
+  In the Modern Age its spearmen, archers and knights come out as Infantry, Machine Gunners and Tanks.
+- **Satellite.** Normal and Hard AIs in the Modern Age launch a satellite once they have spare resources.
+- **No nukes.** The AI never builds or launches a nuclear bomb.
 
 ## Controls
 | Action | Input |

@@ -1,12 +1,13 @@
 // ===== AI =====
 function initAI(p){const P=PERS[p.pers],Df=DIFF[difficulty];
- p.ai={tick:Math.random(),nextWave:P.firstAttack*Df.tm,waveSize:Math.max(3,Math.round(P.wave*Df.wm)),ring:null,ringSet:null,ringIdx:0,saveFor:null,lastWarn:-99};
+ p.inc={food:0,wood:0,stone:0,gold:0};p.ai={bank:null,tick:Math.random(),nextWave:P.firstAttack*Df.tm,waveSize:Math.max(3,Math.round(P.wave*Df.wm)),ring:null,ringSet:null,ringIdx:0,saveFor:null,lastWarn:-99};
  if(P.walls){const k=p.keep;const cx=Math.floor(k.x),cy=Math.floor(k.y),R=10;const ring=[];const set=new Set();
   const add=(x,y,g)=>{if(!inb(x,y))return;const i=y*MAP+x;if(set.has(i))return;set.add(i);ring.push({x,y,g});};
   for(let x=cx-R;x<=cx+R;x++){add(x,cy-R,x===cx);add(x,cy+R,x===cx);}
   for(let y=cy-R+1;y<cy+R;y++){add(cx-R,y,y===cy);add(cx+R,y,y===cy);}
   ring.sort((a,b)=>(b.g?1:0)-(a.g?1:0));p.ai.ring=ring;p.ai.ringSet=set;}}
-function affordRes(p,c,reserve){for(const r of RES){const need=(c[r]||0)+(reserve?(reserve[r]||0)*.8:0);if(p.res[r]<need)return false;}return true;}
+// the AI's own spending check: an optional reserve (80% of a cost it is saving for) plus its age-building savings (p.ai.bank) stay untouched
+function affordRes(p,c,reserve){const bk=p.ai&&p.ai.bank;for(const r of RES){const need=(c[r]||0)+(reserve?(reserve[r]||0)*.8:0)+(bk?bk[r]||0:0);if(p.res[r]<need)return false;}return true;}
 // placement is no longer limited by territory: the AI keeps its own buildings away from enemy bases
 function aiSafe(p,x,y){for(const b of blds)if(!b.dead&&isEnemy(p.id,b.owner)&&!BLD[b.type].wall&&dist(x,y,b.x,b.y)<14)return false;return true;}
 function aiFindSpot(p,type){const D=BLD[type];const k=p.keep;let cx=k.x,cy=k.y,r0=3,r1=15;
@@ -19,17 +20,90 @@ function aiFindSpot(p,type){const D=BLD[type];const k=p.keep;let cx=k.x,cy=k.y,r
  return null;}
 function attackMove(u,x,y){u.state='move';u.target=null;u.amove={x,y};u.leash=false;u.guard=null;goTo(u,x+rr(-1.5,1.5),y+rr(-1.5,1.5));u.amove={x:u.goal.x,y:u.goal.y};}
 function nearestBldOf(pid,x,y){let best=null,bd=1e9;for(const b of blds){if(b.dead||b.owner!==pid)continue;const d=dist(x,y,b.x,b.y)+(BLD[b.type].wall?6:0);if(d<bd){bd=d;best=b;}}return best;}
+// ---- AI and the ages
+// which age building (or satellite) the AI is working towards: {type, cost, save (hold back spending), place (try to put the site down)}
+function aiAgeGoal(p,myB,t){const Df=DIFF[difficulty],f=AGE_F[p.pers]||1,age=p.age||0;
+ const has=ty=>myB.some(b=>b.type===ty);
+ const go=(T,cost)=>t>T*f||(t>T*f*.4&&afford(p,cost));
+ if(age<1&&Df.maxAge>=1){if(has('university'))return null;const c=BLD.university.cost;if(!go(Df.uniT,c))return null;return{type:'university',cost:c,save:true,place:afford(p,c)};}
+ if(age<2&&Df.maxAge>=2){if(has('lab'))return null;const c=BLD.lab.cost;if(!go(Df.labT,c))return null;return{type:'lab',cost:c,save:true,place:afford(p,c)};}
+ if(age>=2&&Df.sat&&!p.sat){const L=myB.find(b=>b.type==='lab'&&b.built);if(!L||L.satQ)return null;
+  if(RES.every(r=>p.res[r]>=SAT.cost[r]+300)){applyCmd(p.id,{t:'buildsat',bid:L.id});p.ai.bank=null;return null;}
+  return t>Df.labT*f+240?{type:'sat',cost:SAT.cost,save:true,place:false}:null;}
+ return null;}
+// gather weights: personality mix; while saving, half of it follows the shortfall of the age building's cost
+// savings for the age building / satellite: a share of everything gathered (p.inc) goes into A.bank until the cost is covered.
+// Normal spending (affordRes) only sees res - bank, so the army and economy keep going on the rest. Less is put aside while under attack.
+// With a Market, surplus of a resource that is already fully saved is sold for gold when gold is what is missing.
+function aiBank(p,A,save,t,myB){const inc=p.inc;
+ if(!save){A.bank=null;for(const r of RES)inc[r]=0;return;}
+ if(!A.bank||A.bankFor!==save){A.bankFor=save;A.bank={};for(const r of RES)A.bank[r]=Math.min(save[r]||0,p.res[r]*.6);}
+ const raid=t-(A.raidT||-99)<30||myB.some(b=>t-b.lastHit<10);const fr=raid?.3:(p.age||0)>=1?.6:.75;
+ for(const r of RES){const B=A.bank;B[r]=Math.min(save[r]||0,B[r]+inc[r]*fr,p.res[r]);inc[r]=0;}
+ const mk=myB.find(b=>b.type==='market'&&b.built);const B=A.bank;
+ if(mk&&B.gold<save.gold){for(const r of ['food','wood','stone']){if(B[r]<(save[r]||0))continue;const free=p.res[r]-B[r];const amt=Math.floor(Math.min(free-250,600)/100)*100;
+   if(amt>=100){applyCmd(p.id,{t:'trade',bid:mk.id,res:r,dir:'sell',amt});B.gold=Math.min(save.gold,B.gold+amt/TRADE_RATE,p.res.gold);break;}}}}
+function aiGatherW(p,P,t,def,defSum){const w={};
+ for(const r of RES){w[r]=P.gather[r];if(p.res[r]>900&&!(def&&def[r]>0))w[r]*=.25;if(t<100&&(r==='stone'||r==='gold'))w[r]*=.3;}
+ if(defSum>0){for(const r of RES)w[r]=w[r]*.45+.55*def[r]/defSum+(r==='food'?.08:0);}
+ return w;}
+const unitAgeLocked=(ut,p)=>(UNITS[ut].age||0)>(p.age||0);
+// army share of a unit type; trebuchets and rams join once the Middle Ages allow them; shares shrink with the unit's age price growth
+function aiCompW(p,P,ut,t,TM){let w=P.comp[ut]||0;const age=p.age||0,sT=t>P.siegeT*TM||age>=1;
+ if(ut==='catapult')w=sT?(age>=1?P.siegeW*.3+.01:P.siegeW+.05):0;
+ else if(ut==='trebuchet')w=sT?P.siegeW*.4+.03:0;
+ else if(ut==='ram')w=sT?P.siegeW*.35+.03:0;
+ if(w<=0)return 0;const sum=c=>RES.reduce((s,r)=>s+(c[r]||0),0);return w*Math.sqrt(sum(UNITS[ut].cost)/sum(US(ut,p.id).cost));}
+// siege on an attack: rams go for walls/gates/towers/fortresses with an escort, trebuchets and catapults hang back behind the front line
+const SIEGE_PRI={tower:4,fortress:4,keep:3,gate:3,wall:2.5,barracks:1.5,stable:1.5,workshop:1.5,lab:2,university:1.5};
+function siegeTarget(u,qid,R){let best=null,bs=-1e9;for(const b of blds){if(b.dead||b.owner!==qid)continue;const d=distTo(u,b);if(d>R)continue;
+  const pri=SIEGE_PRI[b.type]||1;if(BLD[b.type].wall&&d>10)continue;const s=pri*8-d;if(s>bs){bs=s;best=b;}}return best;}
+function aiSiege(p,army,k){const by={};for(const u of army)if(u.aiMission!=null)(by[u.aiMission]=by[u.aiMission]||[]).push(u);
+ for(const qid in by){const q=players[qid];if(!q||q.surrendered)continue;const grp=by[qid];const siege=grp.filter(u=>UNITS[u.type].cls==='siege'),inf=grp.filter(u=>UNITS[u.type].cls!=='siege');
+  if(!siege.length){for(const u of inf)u.escort=null;continue;}
+  const cx=inf.length?inf.reduce((s,u)=>s+u.x,0)/inf.length:k.x,cy=inf.length?inf.reduce((s,u)=>s+u.y,0)/inf.length:k.y;
+  // escorts: two per ram (nearest free fighters) stay with it until it is at work
+  const taken=new Set();for(const u of inf){if(u.escort!=null){const r=units.find(v=>v.id===u.escort);if(!r||r.dead||r.aiMission==null)u.escort=null;else taken.add(u);}}
+  for(const r of siege){if(r.type!=='ram')continue;let have=inf.filter(u=>u.escort===r.id).length;
+   while(have<2){let bi=null,bd=1e9;for(const u of inf){if(taken.has(u))continue;const d=dist(u.x,u.y,r.x,r.y);if(d<bd){bd=d;bi=u;}}if(!bi)break;bi.escort=r.id;taken.add(bi);have++;}}
+  for(const u of inf){if(u.escort==null)continue;const r=units.find(v=>v.id===u.escort);if(!r)continue;
+   if(u.state==='attack'&&u.target&&!u.target.dead&&u.target.kind==='unit')continue;  // already fighting something near the ram
+   if(dist(u.x,u.y,r.x,r.y)>3.5||u.state==='idle'){const hx=r.x+(r.target?(r.target.x-r.x):(q.keep.x-r.x))*.08,hy=r.y+(r.target?(r.target.y-r.y):(q.keep.y-r.y))*.08;attackMove(u,hx,hy);}}
+  const front=(b)=>inf.reduce((m,u)=>Math.min(m,distTo(u,b)),1e9);
+  for(const u of siege){const D=uD(u);
+   // too close to enemy fighters: trebuchets/catapults back off towards home (rams just keep going)
+   if(u.type!=='ram'){let thr=null;queryUnits(u.x,u.y,4,v=>{if(!thr&&!v.dead&&isEnemy(u.owner,v.owner)&&v.type!=='peasant'&&UNITS[v.type].cls!=='siege'&&dist(u.x,u.y,v.x,v.y)<3.5)thr=v;});
+    if(thr){const dx=u.x-thr.x,dy=u.y-thr.y,d=Math.hypot(dx,dy)||1;u.state='move';u.target=null;u.amove=null;goTo(u,clamp(u.x+dx/d*4,1,MAP-2),clamp(u.y+dy/d*4,1,MAP-2));continue;}}
+   let b=u.target&&!u.target.dead&&u.target.kind==='bld'&&u.target.owner==qid?u.target:null;
+   if(!b)b=siegeTarget(u,+qid,u.type==='ram'?14:D.range+8);
+   if(u.type==='ram'){const esc=inf.filter(v=>v.escort===u.id&&dist(v.x,v.y,u.x,u.y)<7).length;
+    if(b&&(esc>=1||distTo(u,b)<6||!inf.length)){if(u.target!==b){u.target=b;u.state='attack';u.amove=null;u.path=null;}continue;}
+    if(inf.length&&(u.state==='idle'||dist(u.x,u.y,cx,cy)>8)){u.target=null;u.state='move';u.amove=null;goTo(u,cx,cy);}else if(!inf.length&&u.state==='idle')attackMove(u,q.keep.x,q.keep.y);continue;}
+   if(b){const d=distTo(u,b);
+    // hold at range until the fighters are at least as far forward, so siege never leads the attack
+    if(d<=D.range+.1||!inf.length||front(b)<=d+1){if(u.target!==b){u.target=b;u.state='attack';u.amove=null;u.path=null;}}
+    else if(u.state!=='idle'){u.state='idle';u.target=null;u.path=null;u.amove=null;}
+    continue;}
+   if(u.state==='attack'&&u.target&&!u.target.dead)continue;
+   // nothing to shoot yet: trail the army, a few tiles behind its centre
+   if(inf.length){const bx=q.keep.x-cx,by2=q.keep.y-cy,bl=Math.hypot(bx,by2)||1;const gx=clamp(cx-bx/bl*4,1,MAP-2),gy=clamp(cy-by2/bl*4,1,MAP-2);
+    if(dist(u.x,u.y,gx,gy)>4&&(u.state==='idle'||!u.goal||dist(u.goal.x,u.goal.y,gx,gy)>4)){u.state='move';u.target=null;u.amove=null;goTo(u,gx,gy);}}
+   else if(u.state==='idle')attackMove(u,q.keep.x,q.keep.y);}}}
 function aiThink(p){
  const A=p.ai,P=PERS[p.pers],k=p.keep,Df=DIFF[difficulty],TM=Df.tm;if(p.surrendered||!k||k.dead)return;
  const t=time;const all=units.filter(u=>u.owner===p.id&&!u.dead);const mine=all.filter(u=>!u.inG&&u.state!=='garrison');const nPeas=all.filter(u=>u.type==='peasant').length;const peas=mine.filter(u=>u.type==='peasant');const army=mine.filter(u=>u.type!=='peasant');
  const myB=blds.filter(b=>b.owner===p.id&&!b.dead);const count=ty=>myB.filter(b=>b.type===ty).length;
  // --- peasants
- const peasTarget=Math.min(P.peas,6+Math.floor(t/11));const qp=myB.reduce((s,b)=>s+b.queue.filter(q=>q==='peasant').length,0);
+ // --- ages: save up for the University, then the Research Lab (then a satellite); see aiAgeGoal
+ const goal=aiAgeGoal(p,myB,t);A.goal=goal?goal.type:null;const save=goal&&goal.save?goal.cost:null;
+ const def=save?RES.reduce((o,r)=>(o[r]=Math.max(0,(save[r]||0)-p.res[r]),o),{}):null;const defSum=def?RES.reduce((s,r)=>s+def[r],0):0;
+ aiBank(p,A,save,t,myB);
+ const peasTarget=Math.min(P.peas+((p.age||0)>=1||save?18:0),6+Math.floor(t/11));const qp=myB.reduce((s,b)=>s+b.queue.filter(q=>q==='peasant').length,0);
  if(nPeas+qp<peasTarget&&k.queue.length<2&&affordRes(p,US('peasant',p.id).cost,null))enqueue(k,'peasant');
  // --- gather assignment
  const cnt={food:0,wood:0,stone:0,gold:0};for(const u of peas){if(u.job)cnt[u.job.farm?'food':u.job.rt]++;}
  for(const u of peas){if(u.state!=='idle')continue;if(u.job){if(u.job.farm||u.job.rt){u.bld=null;if(resumeWork(u))continue;}u.job=null;}
-  const w={};for(const r of RES){w[r]=P.gather[r];if(p.res[r]>900)w[r]*=.25;if(t<100&&(r==='stone'||r==='gold'))w[r]*=.3;}
+  const w=aiGatherW(p,P,t,def,defSum);
   let br='wood',bs=-1e9;for(const r of RES){const s=w[r]*peas.length-cnt[r];if(s>bs){bs=s;br=r;}}
   if(br==='food'){const f=findFarm(p.id,u.x,u.y);if(f&&assignFarm(u,f)){cnt.food++;continue;}A.needFarm=true;br='wood';}
   const drop=nearestDrop(p.id,br,k.x,k.y)||k;const n=nearestRes(RT[br],drop.x,drop.y,30*mapF()|0,true,u)||nearestRes(RT.wood,k.x,k.y,30*mapF()|0,true,u);
@@ -38,6 +112,11 @@ function aiThink(p){
  if(Math.floor(t)%4===0){const need=RES.filter(r=>p.res[r]<150&&P.gather[r]>0.05).sort((a,b)=>p.res[a]-p.res[b]);const rich=RES.filter(r=>p.res[r]>400&&cnt[r]>1).sort((a,b)=>p.res[b]-p.res[a]);
   if(need.length&&rich.length){const nr=need[0],rr2=rich[0];const g=peas.find(u=>u.state!=='build'&&u.job&&(u.job.farm?'food':u.job.rt)===rr2);
    if(g){if(nr==='food'){const f=findFarm(p.id,k.x,k.y);if(f){g.job=null;assignFarm(g,f);}else A.needFarm=true;}else{const drop=nearestDrop(p.id,nr,k.x,k.y)||k;const n=nearestRes(RT[nr],drop.x,drop.y,30*mapF()|0,true,g);if(n){assignGather(g,n[0],n[1]);}}}}}
+ // saving for an age building: every 3 s move one worker from a resource that is already covered (or least short) to the most-needed one
+ if(defSum>0&&Math.floor(t)%3===0){const tot=Math.max(1,peas.length);let nr=null,ns=-1e9;for(const r of RES){if(def[r]<=0)continue;const s=def[r]/defSum-cnt[r]/tot;if(s>ns){ns=s;nr=r;}}
+  let rr2=null,rs=-1e9;for(const r of RES){if(r===nr||cnt[r]<2)continue;const s=cnt[r]/tot-def[r]/defSum-(r==='food'&&p.res.food<300?1:0);if(s>rs){rs=s;rr2=r;}}
+  if(nr&&rr2&&ns>.05&&rs>0){const g=peas.find(u=>u.state!=='build'&&u.job&&(u.job.farm?'food':u.job.rt)===rr2);
+   if(g){if(nr==='food'){const f=findFarm(p.id,k.x,k.y);if(f){g.job=null;assignFarm(g,f);}else A.needFarm=true;}else{const drop=nearestDrop(p.id,nr,k.x,k.y)||k;const n=nearestRes(RT[nr],drop.x,drop.y,40*mapF()|0,true,g);if(n)assignGather(g,n[0],n[1]);}}}}
  // rebalance: shift one wood gatherer to food if starving
  if(t%10<1&&p.res.food<60&&cnt.food<peas.length*.25){const f=findFarm(p.id,k.x,k.y);const g=peas.find(u=>u.state!=='build'&&u.job&&u.job.rt==='wood');if(f&&g)assignFarm(g,f);}
  // --- buildings
@@ -56,26 +135,41 @@ function aiThink(p){
  if(count('fortress')<1&&t>P.fortressT*TM)want.push('fortress');
  if(count('lumber')<2&&t>260)want.push('lumber');
  if(count('mine')<2&&t>420)want.push('mine');
+ if((p.age||0)>=1&&count('workshop')<1)want.push('workshop');
+ if(save){if(count('market')<1)want.push('market');if(count('mine')<3&&def.gold>0)want.push('mine');if(count('quarry')<2&&def.stone>0)want.push('quarry');}
+ if(goal&&goal.place&&!myB.some(b=>b.type===goal.type))want.unshift(goal.type);
  A.saveFor=null;A.needFarm=false;
- for(const ty of want){if(under>=2&&ty!=='house')break;
-  if(afford(p,BLD[ty].cost)){const s=aiFindSpot(p,ty);if(s&&placeBuilding(ty,s[0],s[1],p.id))under++;}
+ for(const ty of want){if(under>=2&&ty!=='house'&&!BLD[ty].ageUp)break;
+  if(BLD[ty].ageUp?afford(p,BLD[ty].cost):affordRes(p,BLD[ty].cost,null)){const s=aiFindSpot(p,ty);if(s&&placeBuilding(ty,s[0],s[1],p.id)){under++;if(BLD[ty].ageUp)A.bank=null;}}
   else{A.saveFor=BLD[ty].cost;break;}}
- if(A.ring&&t>150&&p.res.stone>60&&myB.filter(b=>!b.built&&BLD[b.type].wall).length<6){let placed=0;for(let tries=0;tries<A.ring.length&&placed<4;tries++){const c=A.ring[A.ringIdx%A.ring.length];A.ringIdx++;const i=c.y*MAP+c.x;if(bgrid[i]||tiles[i]||resT[i])continue;const ty=c.g?'gate':'wall';if(!afford(p,BLD[ty].cost))break;if(placeBuilding(ty,c.x,c.y,p.id))placed++;}}
+ if(A.ring&&t>150&&p.res.stone>60&&!(def&&def.stone>0)&&myB.filter(b=>!b.built&&BLD[b.type].wall).length<6){let placed=0;for(let tries=0;tries<A.ring.length&&placed<4;tries++){const c=A.ring[A.ringIdx%A.ring.length];A.ringIdx++;const i=c.y*MAP+c.x;if(bgrid[i]||tiles[i]||resT[i])continue;const ty=c.g?'gate':'wall';if(!affordRes(p,BLD[ty].cost,null))break;if(placeBuilding(ty,c.x,c.y,p.id))placed++;}}
  // --- builders: every construction site / damaged building gets peasants (walls 1, others up to 2-3)
  {// sites builders repeatedly failed to reach (no passable approach tile) are cancelled and refunded
   for(const b of myB)if(!b.built&&!b.dead&&(b.unreach||0)>=3&&b.prog<0.05){refund(p,BLD[b.type].cost);b.cancelled=true;killEnt(b,-1);}
   const sites=myB.filter(b=>!b.dead&&(!b.built||(b.hp<b.maxhp*.7&&t-b.lastHit>6&&!BLD[b.type].wall&&t-(b.noFundsT||-99)>15)));if(sites.length){const busy=peas.filter(u=>u.state==='build').length;let cap=Math.max(2,Math.ceil(peas.length*.2))-busy;let wallB=peas.filter(u=>u.state==='build'&&u.bld&&BLD[u.bld.type].wall).length;
   const free=peas.filter(u=>u.state!=='build'&&(u.state==='idle'||u.carry===0)&&!(u.state==='farm'&&u.job&&time-(u.job.t||0)<20));// fresh farmers (e.g. a farm's own builders) stay on their farmsites.sort((a,b)=>(BLD[a.type].wall?1:0)-(BLD[b.type].wall?1:0)||(b.type==='house'?1:0)-(a.type==='house'?1:0));
-  for(const s of sites){if(cap<=0||!free.length)break;const want=BLD[s.type].wall?1:s.built?2:(BLD[s.type].time>30?3:2);let have=buildersOf(s);
+  for(const s of sites){if(cap<=0||!free.length)break;const want=BLD[s.type].wall?1:s.built?2:BLD[s.type].ageUp?5:(BLD[s.type].time>30?3:2);let have=buildersOf(s);
    if(BLD[s.type].wall&&wallB>=2)continue;
    while(have<want&&cap>0&&free.length){let bi=0,bs=1e9;free.forEach((u,i)=>{const sc=dist(u.x,u.y,s.x,s.y)-(u.state==='idle'?15:0)+(u.badBld===s&&t-u.badBldT<30?1e6:0);if(sc<bs){bs=sc;bi=i;}});if(bs>=5e5)break;const u=free.splice(bi,1)[0];if(assignBuild(u,s)){have++;cap--;if(BLD[s.type].wall)wallB++;}}}}}
  // --- military
  const maxArmy=Math.round(P.maxArmy*(0.8+0.2*Df.mult));
- if(army.length<maxArmy){const tc={};for(const u of army)tc[u.type]=(tc[u.type]||0)+1;for(const b of myB)for(const q of b.queue)tc[q]=(tc[q]||0)+1;
-  const tot=army.length+1;
-  for(const b of myB){const D=BLD[b.type];if(!b.built||!D.train||b.type==='keep'||b.queue.length>=2)continue;
-   let best=null,bs=-1e9;for(const ut of D.train){if(ut==='peasant')continue;let w=P.comp[ut]||0;if(ut==='catapult')w=t>P.siegeT*TM?P.siegeW+.05:0;if(w<=0)continue;const s=w*tot-(tc[ut]||0);if(s>bs){bs=s;best=ut;}}
-   if(best&&affordRes(p,US(best,p.id).cost,A.saveFor)){enqueue(b,best);tc[best]=(tc[best]||0)+1;}}}
+ // while saving for an age building the army is capped at ~70% (90% when attacked); the savings themselves are in A.bank
+ const recentRaid=t-(A.raidT||-99)<30||myB.some(b=>t-b.lastHit<10);const saveArmy=Math.round(maxArmy*(recentRaid?.9:.7));
+ const armyCap=save?Math.min(maxArmy,saveArmy):maxArmy;
+ if(army.length<armyCap){const tc={};for(const u of army)tc[u.type]=(tc[u.type]||0)+1;for(const b of myB)for(const q of b.queue)tc[q]=(tc[q]||0)+1;
+  const tot=army.length+1;let reserve=save?null:A.saveFor;
+  // from the Middle Ages on, a few trebuchets/rams come first: the Workshop picks before the other buildings, and if it cannot pay yet
+  // the others leave that much untouched for it
+  const nSiege=['trebuchet','ram'].reduce((s,ut)=>s+(tc[ut]||0),0),wantSiege=(p.age||0)>=1&&nSiege<2+(p.age||0);
+  const order=myB.filter(b=>b.built&&BLD[b.type].train&&b.type!=='keep').sort((a,b)=>(b.type==='workshop'&&wantSiege?1:0)-(a.type==='workshop'&&wantSiege?1:0));
+  for(const b of order){const D=BLD[b.type];if(b.queue.length>=2)continue;
+   // candidates by how far each type is below its share; each share is scaled by how much the type's price has grown with the ages
+   // (base cost / current cost, square root), and the best one we can actually pay for right now is trained
+   const cands=[];for(const ut of D.train){if(ut==='peasant'||unitAgeLocked(ut,p))continue;const w=aiCompW(p,P,ut,t,TM);if(w<=0)continue;cands.push([w*tot-(tc[ut]||0),ut]);}
+   cands.sort((a,b)=>b[0]-a[0]);
+   if(b.type==='workshop'&&wantSiege){const ut=(tc.ram||0)<(tc.trebuchet||0)?'ram':'trebuchet';const c=US(ut,p.id).cost;
+    if(affordRes(p,c,reserve)){enqueue(b,ut);tc[ut]=(tc[ut]||0)+1;}else if(!reserve)reserve=c;continue;}
+   for(const [s,ut] of cands){if(s<cands[0][0]-2)break;if(affordRes(p,US(ut,p.id).cost,reserve)){enqueue(b,ut);tc[ut]=(tc[ut]||0)+1;break;}}}}
  // --- defense
  let threat=null;for(const b of myB)if(t-b.lastHit<4){threat={x:b.x,y:b.y};break;}
  if(!threat)queryUnits(k.x,k.y,15,v=>{if(!threat&&!v.dead&&isEnemy(p.id,v.owner)&&v.type!=='peasant'&&dist(v.x,v.y,k.x,k.y)<15)threat={x:v.x,y:v.y};});
@@ -84,18 +178,20 @@ function aiThink(p){
   if(ev>=60)A.raidT=t;const hv=army.filter(u=>u.aiMission==null).reduce((s,u)=>s+UNITS[u.type].val,0);
   if(!p.bell){if(ev>=150&&ev>hv*.6&&t>(A.bellCD||0)){ringBell(p.id,true,true);A.bellOnT=t;}}
   else if(t-(A.raidT||0)>8||t-(A.bellOnT||0)>45){ringBell(p.id,false);A.bellCD=t+30;}}
- if(threat){for(const u of army){if(u.state==='attack')continue;if(u.aiMission!=null&&dist(u.x,u.y,k.x,k.y)>22)continue;if(u.amove&&dist(u.amove.x,u.amove.y,threat.x,threat.y)<5)continue;u.aiMission=null;attackMove(u,threat.x,threat.y);}}
+ if(threat){for(const u of army){if(u.state==='attack'||u.type==='ram')continue;if(u.aiMission!=null&&dist(u.x,u.y,k.x,k.y)>22)continue;if(u.amove&&dist(u.amove.x,u.amove.y,threat.x,threat.y)<5)continue;u.aiMission=null;attackMove(u,threat.x,threat.y);}}
  // --- attack waves
  const home=army.filter(u=>u.aiMission==null);
- if(!threat&&t>=A.nextWave&&home.length>=A.waveSize){
+ if(!threat&&t>=A.nextWave&&home.length>=Math.min(A.waveSize,Math.max(3,Math.round(armyCap*.8)))){
   let tgt=null,ts=-1;for(const q of players){if(q===p||q.surrendered||!q.keep||q.keep.dead)continue;const s=(q.isHuman?P.hatePlayer:1)/dist(k.x,k.y,q.keep.x,q.keep.y)*(0.75+Math.random()*.5);if(s>ts){ts=s;tgt=q;}}
   if(tgt){const n=Math.max(1,Math.floor(home.length*(1-P.guard)));const go=home.slice(0,n);
    for(const u of go){u.aiMission=tgt.id;attackMove(u,tgt.keep.x,tgt.keep.y);}
    A.waveSize=Math.min(A.waveSize+P.waveGrow,Math.round(maxArmy*.8));A.nextWave=t+P.waveInt*TM;
    if(tgt.isHuman){msg(`⚔ ${p.name} sends an army of ${go.length} against you!`,rgb(p.color,1.3),tgt.id);sfx('horn',null,null,tgt.id);}}}
  for(const u of army){if(u.aiMission==null)continue;const q=players[u.aiMission];
-  if(!q||q.surrendered){u.aiMission=null;attackMove(u,k.x+rr(-3,3),k.y+rr(-3,3));continue;}
+  if(!q||q.surrendered){u.aiMission=null;u.escort=null;attackMove(u,k.x+rr(-3,3),k.y+rr(-3,3));continue;}
+  if(UNITS[u.type].cls==='siege'||u.escort!=null)continue;
   if(u.state==='idle'){const b=nearestBldOf(q.id,u.x,u.y);if(b)attackMove(u,b.x,b.y);else{u.aiMission=null;attackMove(u,k.x,k.y);}}}
+ aiSiege(p,army,k);
  // idle home army: rally near keep
  for(const u of home){if(u.state==='idle'&&dist(u.x,u.y,k.x,k.y)>14&&!threat){u.state='move';goTo(u,k.x+rr(-5,5),k.y+rr(-5,5));}}
  // --- surrender check

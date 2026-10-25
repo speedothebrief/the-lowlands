@@ -221,10 +221,10 @@ console.log('--- Fortress shoots enemy buildings');
  const W=A.spawnBld('wall',fx+8,fy+1,1,true),T=A.spawnBld('tower',fx+10,fy+3,1,true),S=A.spawnBld('house',fx-6,fy+5,1,false);T.cd=1e9;
  for(const b of [W,T,S]){b.hp=b.maxhp=1e6;}A.updateVisFor(0);
  ok(A.fortBldTarget(F,A.BLD.fortress.shoot.range)===T,'Fortress picks the enemy tower (shoots back) before the nearer wall');
- const h0={W:W.hp,T:T.hp};run(8);const dT=h0.T-T.hp;ok(dT>120&&dT<210,`no enemy units in range: Fortress damages the tower (${dT.toFixed(0)} in 8 s, ~20/s)`);
+ const h0={W:W.hp,T:T.hp};run(8);const dT=h0.T-T.hp;ok(dT>85&&dT<160,`no enemy units in range: Fortress damages the tower (${dT.toFixed(0)} in 8 s, ~15/s)`);
  T.dead=true;const s0=S.hp,w0=W.hp;run(6);
- ok(s0-S.hp>130&&W.hp===w0,`then the nearest building: an unfinished site, at 1.5x (${(s0-S.hp).toFixed(0)} in 6 s; farther wall untouched)`);
- S.dead=true;const w1=W.hp;run(6);ok(w1-W.hp>80,`walls are shot too (${(w1-W.hp).toFixed(0)} in 6 s)`);
+ ok(s0-S.hp>95&&W.hp===w0,`then the nearest building: an unfinished site, at 1.5x (${(s0-S.hp).toFixed(0)} in 6 s; farther wall untouched)`);
+ S.dead=true;const w1=W.hp;run(6);ok(w1-W.hp>60,`walls are shot too (${(w1-W.hp).toFixed(0)} in 6 s)`);
  const S2=A.spawnBld('house',fx-6,fy+5,1,false);S2.hp=S2.maxhp=1e6;
  const kn=A.spawnUnit('knight',fx+5,fy+1,1);kn.hp=kn.maxhp=1e6;kn.state='hold';const s2=S2.hp,k2=kn.hp;run(4);
  ok(S2.hp===s2&&kn.hp<k2,'an enemy unit in range takes priority over buildings');kn.dead=true;
@@ -269,8 +269,9 @@ for(const [sz,M] of [['small',96],['medium',144],['large',192]]){A.setupGame(77,
  ok(g.MAP===M&&g.resT.length===M*M,`${sz}: ${M}x${M} map, keeps ${spread.toFixed(0)} tiles apart, ${trees} trees, ${gold} gold tiles`);
  run(20);ok(A.get().players.every(p=>!p.surrendered),`${sz}: sim runs`);}
 
-console.log('--- Fortress arrows -20% (Keep and Tower unchanged)');
-ok(A.BLD.fortress.shoot.atk===8&&A.BLD.keep.shoot.atk===10&&A.BLD.tower.shoot.atk===9,'Fortress arrows 8 damage (was 10); Keep 10, Tower 9 unchanged');
+console.log('--- Fortress arrows 6 damage (Keep and Tower unchanged)');
+ok(A.BLD.fortress.shoot.atk===6&&A.BLD.keep.shoot.atk===10&&A.BLD.tower.shoot.atk===9,'Fortress arrows 6 damage (v1.4.1; 15 damage/s vs buildings); Keep 10, Tower 9 unchanged');
+ok(A.BLD.fortress.shoot.n*A.BLD.fortress.shoot.atk*0.25/A.BLD.fortress.shoot.cd===15,'Fortress building damage = 8 x 6 x 0.25 / 0.8 s = 15/s');
 
 console.log('--- ages: University -> Middle Ages, Research Lab -> Modern Age');
 const RICH=v=>({food:v,wood:v,stone:v,gold:v});const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
@@ -368,4 +369,28 @@ console.log('--- nuclear bomb');
  // AI never launches
  A.setupGame(5353,[{human:true}],'normal',false);g=A.get();for(const p of g.players){p.age=2;p.nukes=3;A.spawnBld('lab',p.keep.tx+(p.keep.tx<40?6:-6),p.keep.ty,p.id,true);}run(30);
  ok(A.get().nukeFx.length===0&&g.players.slice(1).every(p=>p.nukes===3),'AI kingdoms never launch nukes');}
+
+console.log('--- AI and the ages (hard, ample resources): Middle Ages, Modern Age, siege in attacks, satellites, never nukes');
+{A.setupGame(31337,[{human:true}],'hard',true,'small');const g=A.get();const AIs=g.players.filter(p=>p.isAI);for(const p of AIs)for(const r of ['food','wood','stone','gold'])p.res[r]+=60000;
+ const ageAt={},seen={trebuchet:0,ram:0},siegeHit=new Set(),hitTypes=new Set(),behind=[0,0];let esc=0,nukeEver=false,maxMult=0,modernSeen=new Set();
+ for(let s=0;s<30*60*13;s++){A.sim(A.STEP);if(s%15)continue;const G=A.get();
+  for(const p of AIs){if(!ageAt[p.id+':'+p.age])ageAt[p.id+':'+p.age]=G.time|0;if(p.nukes>0)nukeEver=true;}
+  if(G.nukeFx.some(f=>!f.sat)||G.blds.some(b=>b.nukeQ))nukeEver=true;
+  for(const u of G.units){if(u.dead||!G.players[u.owner].isAI)continue;
+   if(u.type==='trebuchet'||u.type==='ram'){seen[u.type]=Math.max(seen[u.type],1);
+    if(u.aiMission!=null&&u.state==='attack'&&u.target&&u.target.kind==='bld'&&!u.target.dead){siegeHit.add(u.id);hitTypes.add(u.type+'>'+u.target.type);
+     if(u.type==='trebuchet'){const fr=G.units.filter(v=>!v.dead&&v.owner===u.owner&&v.aiMission!=null&&A.UNITS[v.type].cls!=='siege');behind[1]++;
+      const dT=Math.hypot(u.x-u.target.x,u.y-u.target.y);if(fr.some(v=>Math.hypot(v.x-u.target.x,v.y-u.target.y)<=dT+.5))behind[0]++;}}}
+   if(u.escort!=null)esc++;if(G.players[u.owner].age===2&&['archer','knight','spearman'].includes(u.type))modernSeen.add(A.US(u.type,u.owner).name);}}
+ const ages=AIs.map(p=>`${p.short}: Middle ${ageAt[p.id+':1']??'-'} s, Modern ${ageAt[p.id+':2']??'-'} s`).join('; ');
+ ok(AIs.every(p=>p.age>=1||p.surrendered)&&AIs.filter(p=>!p.surrendered).every(p=>ageAt[p.id+':1']<600),'every AI builds a University and reaches the Middle Ages ('+ages+')');
+ ok(AIs.filter(p=>p.age===2).length>=2,`AIs build the Research Lab and reach the Modern Age (${AIs.filter(p=>p.age===2).length}/3)`);
+ ok(AIs.every(p=>!(p.id+':1' in ageAt)||!(p.id+':2' in ageAt)||ageAt[p.id+':2']>ageAt[p.id+':1']),'Modern Age always after the Middle Ages');
+ ok(seen.trebuchet&&seen.ram,'AIs train trebuchets and siege rams in the Middle Ages');
+ ok(siegeHit.size>=2&&[...hitTypes].some(h=>h.startsWith('ram>'))&&[...hitTypes].some(h=>h.startsWith('trebuchet>')),'AI trebuchets and rams on attack missions batter enemy buildings: '+[...hitTypes].join(', '));
+ ok(esc>0,'rams get escorts on the march');
+ ok(behind[1]===0||behind[0]/behind[1]>=.5,`trebuchets fire from behind their front line (${behind[0]}/${behind[1]} samples with a fighter at least as close to the target)`);
+ ok(modernSeen.size>=1,'Modern Age AI armies field modern units: '+[...modernSeen].join(', '));
+ ok(AIs.some(p=>p.sat===1),'a Modern Age AI with spare resources launches a satellite');
+ ok(!nukeEver&&AIs.every(p=>!p.nukes),'AIs never build or launch a nuclear bomb');}
 console.log(fails?fails+' FAILURES':'ALL RULES TESTS PASSED');process.exit(fails?1:0);

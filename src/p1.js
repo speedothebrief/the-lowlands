@@ -39,7 +39,7 @@ const BLD={
  wall:{name:'Wall',w:1,h:1,hp:700,cost:{stone:6},time:4,wall:true,sight:2,val:6,desc:'Blocks movement. Click-drag to build a line.'},
  gate:{name:'Gate',w:1,h:1,hp:900,cost:{stone:20,wood:10},time:6,wall:true,gate:true,sight:3,val:30,desc:'Wall segment your own units can pass.'},
  tower:{name:'Tower',w:1,h:1,hp:900,cost:{stone:100,wood:40},time:22,shoot:{range:7,atk:9,cd:1.4,n:1},gar:6,sight:12,val:140,desc:'Shoots arrows at enemies in range (sees 12 tiles, beyond Fortress range). Garrisons 6 infantry/peasants; each adds an arrow (archers 2).'},
- fortress:{name:'Fortress',w:3,h:3,hp:3600,cost:{stone:400,wood:200,gold:150},time:55,pop:10,drop:ALLRES,shoot:{range:11.5,atk:8,cd:0.8,n:8,bld:true},gar:30,train:['spearman','archer','knight'],sight:12,val:750,desc:'Mighty stronghold: +10 pop, drop-off, trains troops, fires 8 arrows every 0.8 s (twice the Keep, +1 per garrisoned unit, +2 per archer) out to 11.5 tiles (catapult range + 3). Arrows deal 8 damage. With no enemy units in range it shoots enemy buildings, towers first (20 damage/s).'},
+ fortress:{name:'Fortress',w:3,h:3,hp:3600,cost:{stone:400,wood:200,gold:150},time:55,pop:10,drop:ALLRES,shoot:{range:11.5,atk:6,cd:0.8,n:8,bld:true},gar:30,train:['spearman','archer','knight'],sight:12,val:750,desc:'Mighty stronghold: +10 pop, drop-off, trains troops, fires 8 arrows every 0.8 s (twice the Keep, +1 per garrisoned unit, +2 per archer) out to 11.5 tiles (catapult range + 3). Arrows deal 6 damage. With no enemy units in range it shoots enemy buildings, towers first (15 damage/s).'},
  university:{name:'University',w:3,h:3,hp:4500,cost:{food:5000,wood:5000,stone:5000,gold:5000},time:100,ageUp:1,sight:7,val:1500,desc:'Advances your kingdom to the Middle Ages when finished (kept even if it is later destroyed): trebuchets and siege rams, archers +3 range, spearmen and knights +20% health.'},
  lab:{name:'Research Lab',w:3,h:3,hp:6000,cost:{food:10000,wood:10000,stone:10000,gold:10000},time:140,ageUp:2,reqAge:1,nuke:true,sight:8,val:3000,desc:'Requires the Middle Ages. Advances your kingdom to the Modern Age when finished: Machine Gunners, Tanks, Infantry and Howitzers (+20% speed, +25% health, +50% damage). Builds nuclear bombs (10,000 of every resource each).'},
 };
@@ -82,7 +82,10 @@ const PERS={
  builder:{label:'Builder',peas:30,gather:{food:.38,wood:.3,stone:.12,gold:.2},comp:{spearman:.3,archer:.35,knight:.2,catapult:0},siegeT:380,siegeW:.15,firstAttack:400,wave:10,waveGrow:4,waveInt:120,guard:.15,towers:2,walls:false,markets:2,fortressT:560,barracksT:110,barracks2T:520,stableT:260,workshopT:380,maxArmy:55,hatePlayer:1.1},
  defensive:{label:'Defensive',peas:24,gather:{food:.36,wood:.26,stone:.24,gold:.14},comp:{spearman:.4,archer:.45,knight:.15,catapult:0},siegeT:450,siegeW:.15,firstAttack:480,wave:10,waveGrow:3,waveInt:150,guard:.45,towers:5,walls:true,markets:1,fortressT:500,barracksT:90,barracks2T:99999,stableT:400,workshopT:450,maxArmy:50,hatePlayer:1.0},
 };
-const DIFF={easy:{mult:.75,tm:1.4,wm:.75,bonus:0,label:'Easy'},normal:{mult:1,tm:1,wm:1,bonus:0,label:'Normal'},hard:{mult:1.3,tm:.8,wm:1.25,bonus:150,label:'Hard'}};
+// ages for AI kingdoms: maxAge = how far it advances; uniT / labT = game time (s) when it starts saving for the University / Research Lab
+// (earlier if it already holds the whole cost); satellite only on Normal/Hard. Personality scales the times (PERS ageF).
+const DIFF={easy:{mult:.75,tm:1.4,wm:.75,bonus:0,label:'Easy',maxAge:1,uniT:1200,labT:1e9,sat:false},normal:{mult:1,tm:1,wm:1,bonus:0,label:'Normal',maxAge:2,uniT:720,labT:1200,sat:true},hard:{mult:1.3,tm:.8,wm:1.25,bonus:150,label:'Hard',maxAge:2,uniT:480,labT:900,sat:true}};
+const AGE_F={aggressive:1.15,builder:.85,defensive:1};
 
 // ===== state =====
 let tiles,resT,resA,treeV,gcls,bgrid,vis,visMap={},resEvents=[];

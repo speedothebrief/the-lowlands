@@ -149,13 +149,13 @@ function peasantUpdate(u,dt){
   else moveAlong(u,dt);
  }else if(u.state==='return'){const b=u.dropB;
   if(!b||b.dead){startReturn(u);return;}
-  if(distTo(u,b)<=0.95){if(u.carry>0)sfx('drop',u.x,u.y,u.owner,RT[u.carryT]||0);P.res[u.carryT]+=u.carry;u.carry=0;if(u.job&&u.job.rt){u.state='gather';u.path=null;u.pend=null;}else u.state='idle';return;}
+  if(distTo(u,b)<=0.95){if(u.carry>0)sfx('drop',u.x,u.y,u.owner,RT[u.carryT]||0);P.res[u.carryT]+=u.carry;if(P.inc)P.inc[u.carryT]+=u.carry;u.carry=0;if(u.job&&u.job.rt){u.state='gather';u.path=null;u.pend=null;}else u.state='idle';return;}
   if(!hasPath(u)){u.rfail++;if(u.rfail>6){u.badDrop=b.id;u.badDropT=time;const nb=nearestDrop(u.owner,u.carryT,u.x,u.y,u);if(nb){startReturn(u);}else u.state='idle';return;}const tp=approachPoint(u,b,u.rfail-1);goTo(u,tp.x,tp.y);}else moveAlong(u,dt);
  }else if(u.state==='farm'){const j=u.job;const b=j&&j.farm;
   if(!b||b.dead){u.job=null;const f=findFarm(u.owner,u.x,u.y);if(f)assignFarm(u,f);else u.state='idle';return;}
   const fx=b.tx+(j.slot?1.45:0.55)+Math.sin(u.anim*.3+j.slot)*0.25,fy=b.ty+(j.slot?0.6:1.4);
   const d=dist(u.x,u.y,fx,fy);
-  if(d<0.5&&b.built){u.working=true;P.res.food+=FARM_RATE*dt*mult;if(Math.abs(fx-u.x)>.02)u.x+=Math.sign(fx-u.x)*Math.min(Math.abs(fx-u.x),dt*.3);}
+  if(d<0.5&&b.built){u.working=true;P.res.food+=FARM_RATE*dt*mult;if(P.inc)P.inc.food+=FARM_RATE*dt*mult;if(Math.abs(fx-u.x)>.02)u.x+=Math.sign(fx-u.x)*Math.min(Math.abs(fx-u.x),dt*.3);}
   else if(d>=0.5){if(!hasPath(u)||(u.goal&&dist(u.goal.x,u.goal.y,fx,fy)>1))goTo(u,fx,fy);moveAlong(u,dt);}
  }}
 function findFarm(owner,x,y){let best=null,bd=1e9;for(const b of blds){if(b.dead||b.owner!==owner||b.type!=='farm'||!b.built||!farmFree(b))continue;if(time-(b.doneT||-99)<1.5&&buildersOf(b)>0)continue;// a just-finished farm is reserved for its builders
@@ -204,7 +204,7 @@ function updateBld(b,dt){const D=BLD[b.type];const P=players[b.owner];
  if(nB>0&&b.hp<b.maxhp){const gain=Math.min(b.maxhp-b.hp,b.maxhp*dt*buildEff(nB)/(Math.max(D.time,8)*2.5));const rc=repairCost(b,gain);
   if(afford(P,rc)){pay(P,rc);b.hp+=gain;b.repT=time;if(Math.random()<dt*6)parts.push({x:b.x+rr(-b.w/2,b.w/2),y:b.y+rr(-b.h/2,b.h/2),z:rr(8,30),vx:rr(-.3,.3),vy:rr(-.3,.3),vz:rr(15,30),life:.6,max:.6,c:'#9cf27a',s:2});}
   else{b.noFundsT=time;}if(!afford(P,rc)&&time-(b.rfT||-99)>8){b.rfT=time;if(P.isHuman){msg(`Not enough wood/stone to repair the ${D.name}.`,'#ff9a8a',b.owner);sfx('err',b.x,b.y,b.owner);}}}
- if(D.income)P.res.gold+=D.income*dt*(P.isAI?DIFF[difficulty].mult:1);
+ if(D.income){const g=D.income*dt*(P.isAI?DIFF[difficulty].mult:1);P.res.gold+=g;if(P.inc)P.inc.gold+=g;}
  if(D.shoot){b.cd-=dt;if(b.cd<=0){const S=D.shoot;const cands=[];queryUnits(b.x,b.y,S.range+1,v=>{if(!v.dead&&isEnemy(b.owner,v.owner)){const d=distTo(v,b);if(d<=S.range)cands.push([d,v]);}});
   if(cands.length){cands.sort((a,c)=>a[0]-c[0]);sfx('bow',b.x,b.y,b.owner);fireVolley(b,S,cands);b.cd=S.cd;}
   else if(S.bld){const t=fortBldTarget(b,S.range);if(t){sfx('bow',b.x,b.y,b.owner);fireVolley(b,S,[[0,t]],true);b.cd=S.cd;}else b.cd=.3;}
@@ -255,7 +255,7 @@ function garArchers(b){let n=0;for(const u of b.gar)if(u.type==='archer')n++;ret
 function sendGarrison(u,b){if(!canGar(u)||u.inG||!garCap(b)||b.owner!==u.owner)return false;if(u.type==='peasant')releaseClaim(u);
  u.state='garrison';u.garB=b;u.target=null;u.amove=null;u.leash=false;u.guard=null;const tp=targetPoint(u,b);goTo(u,tp.x,tp.y);return true;}
 function enterGarrison(u,b){if(!garCap(b)||b.gar.length>=garCap(b)){u.garB=null;u.state='idle';return false;}
- if(u.type==='peasant'){releaseClaim(u);if(u.carry>0&&BLD[b.type].drop&&BLD[b.type].drop.includes(u.carryT)){const P=players[u.owner];P.res[u.carryT]+=u.carry;u.carry=0;u.carryT=null;}}
+ if(u.type==='peasant'){releaseClaim(u);if(u.carry>0&&BLD[b.type].drop&&BLD[b.type].drop.includes(u.carryT)){const P=players[u.owner];P.res[u.carryT]+=u.carry;if(P.inc)P.inc[u.carryT]+=u.carry;u.carry=0;u.carryT=null;}}
  u.inG=b;u.garB=null;u.state='inside';u.path=null;u.pend=null;u.target=null;u.amove=null;u.x=b.x;u.y=b.y;b.gar.push(u);
  if(time-(b.gsT||-9)>.4){b.gsT=time;sfx('garr',b.x,b.y,b.owner,0);}return true;}
 function resumeWork(u){if(u.bld&&needsWork(u.bld)&&u.type==='peasant'){u.state='build';u.path=null;u.pend=null;return true;}u.bld=null;
