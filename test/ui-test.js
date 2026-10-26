@@ -124,6 +124,32 @@ async function trackDrawn(pg,ms,order){return pg.evaluate(async(ms,order)=>{cons
   {const sr=await p.evaluate(()=>{newGame();showHelp=false;state='paused';const labs=[];const ob=bigBtn;bigBtn=function(x,y,w,label,on){labs.push([label,on]);return ob.apply(this,arguments);};try{drawPause();}finally{bigBtn=ob;}
     const s=labs.find(l=>l[0]==='Surrender');if(!s)return {labs:labs.map(l=>l[0])};const oc=window.confirm;window.confirm=()=>true;s[1]();window.confirm=oc;checkOutcome();return {labs:labs.map(l=>l[0]),sur:players[me].surrendered,st:state};});
   ok(sr.sur&&sr.st==='lost','solo: the pause menu has a Surrender button and it ends the game as a defeat '+JSON.stringify(sr));}
+ // ---- v1.4.3: top-bar peasant work counts (per resource, idle, builders) + tooltip
+ {await p.evaluate(()=>{localStorage.setItem('kom_map','small');mapSize='small';newGame();showHelp=false;state='play';});await sleep(300);
+  const setup=await p.evaluate(()=>{const P=players[me],k=P.keep;const near=rt=>{const c=[];for(let y=0;y<MAP;y++)for(let x=0;x<MAP;x++){const t=resT[y*MAP+x];if(t&&RTN[t]===rt)c.push([Math.hypot(x-k.x,y-k.y),x,y]);}c.sort((a,b)=>a[0]-b[0]);return c[0].slice(1);};
+   for(let i=0;i<10;i++)spawnUnit('peasant',k.x+2+(i%5),k.y+3+(i/5|0),me);const ps=units.filter(u=>u.owner===me&&u.type==='peasant'&&!u.inG);const ids=a=>a.map(u=>u.id);
+   const w=near('wood'),s=near('stone'),g=near('gold');issue({t:'gather',ids:ids(ps.slice(0,5)),tx:w[0],ty:w[1]});issue({t:'gather',ids:ids(ps.slice(5,8)),tx:s[0],ty:s[1]});issue({t:'gather',ids:ids(ps.slice(8,10)),tx:g[0],ty:g[1]});
+   let f=null;for(let d=4;d<12&&!f;d++)for(const [dx,dy] of [[d,0],[-d,0],[0,d],[0,-d],[d,d],[-d,-d]]){const tx=Math.floor(k.x+dx),ty=Math.floor(k.y+dy);if(!f&&canPlace('farm',tx,ty,me))f=spawnBld('farm',tx,ty,me,true);}
+   issue({t:'farm',ids:ids(ps.slice(10,12)),bid:f.id});
+   let h=null;for(let d=5;d<14&&!h;d++)for(const [dx,dy] of [[0,-d],[-d,0],[d,-d]]){const tx=Math.floor(k.x+dx),ty=Math.floor(k.y+dy);if(!h&&canPlace('house',tx,ty,me))h=spawnBld('house',tx,ty,me,false);}
+   assignBuild(ps[12],h);return {n:ps.length};});
+  await sleep(1500);
+  const wc=await p.evaluate(()=>{const c=workerCounts(true);const idle=units.filter(u=>u.owner===me&&u.type==='peasant'&&!u.inG&&u.state==='idle').length;
+   // a wood cutter walking back to the drop-off still counts as wood
+   const wu=units.find(u=>u.owner===me&&u.type==='peasant'&&u.job&&u.job.rt==='wood');wu.carry=5;wu.carryT='wood';startReturn(wu);const c2=workerCounts(true);
+   const cached=workerCounts();return {c,idle,ret:wu.state,c2,cachedSame:cached===workerCounts()};});
+  ok(wc.c.wood===5&&wc.c.stone===3&&wc.c.gold===2&&wc.c.food===2&&wc.c.build===1&&wc.c.idle===wc.idle&&wc.idle>=1,'top bar counts peasants per job: wood 5, stone 3, gold 2, food 2 (farm), 1 builder, idle '+JSON.stringify(wc.c));
+  ok(wc.ret==='return'&&wc.c2.wood===5,'a peasant walking back to the drop-off still counts for its resource');ok(wc.cachedSame,'counts are cached between recomputes (not rebuilt every frame)');
+  const tx=await p.evaluate(()=>{const out=[];const o=ctx.fillText;ctx.fillText=function(t){out.push(String(t));return o.apply(this,arguments);};try{drawUI();}finally{ctx.fillText=o;}return out;});
+  const c=wc.c2;ok(['food','wood','stone','gold'].every(r=>tx.includes(String(c[r])))&&tx.includes(String(c.idle)),'the counts are drawn in the top bar '+JSON.stringify(tx.slice(0,14)));
+  // hover: tooltip of the wood chip; click the idle chip selects an idle peasant
+  const chips=await p.evaluate(()=>{drawUI();return uiBtns.filter(b=>b.y===7&&b.tip).map(b=>({x:b.x,y:b.y,w:b.w,h:b.h,t:b.tip.t}));});
+  const wchip=chips.find(b=>b.t.startsWith('Wood:'));await p.mouse.move(wchip.x+wchip.w/2,wchip.y+10);await sleep(150);
+  const tt=await p.evaluate(()=>{drawUI();return tip&&tip.t;});ok(tt&&/^Wood: 5 peasants working/.test(tt),'hovering a count shows a tooltip: '+tt);
+  const ichip=chips.find(b=>b.t.startsWith('Idle peasants'));await p.evaluate(()=>{sel=[];});await p.mouse.click(ichip.x+ichip.w/2,ichip.y+10);await sleep(150);
+  ok(await p.evaluate(()=>sel.length===1&&sel[0].type==='peasant'&&sel[0].state==='idle'),'clicking the idle count selects the next idle peasant');
+  ok(chips.some(b=>b.t.startsWith('Builders: 1')),'builder count chip present');
+  await p.screenshot({path:path.join(SHOTS,'ui-hud-workers.png'),clip:{x:0,y:0,width:1280,height:40}});await p.evaluate(()=>{sel=[];});}
  // ---- page served by a plain static web server (like a Synology web folder): multiplayer explained, no endless "connecting"
  {const http=require('http'),fs=require('fs');const st=http.createServer((q,r)=>{r.writeHead(200,{'Content-Type':'text/html'});r.end(fs.readFileSync(path.join(__dirname,'..','index.html')));}).listen(8134);
   const q=await page('static');q.on('console',()=>{});await q.goto('http://127.0.0.1:8134/');
@@ -195,6 +221,11 @@ async function trackDrawn(pg,ms,order){return pg.evaluate(async(ms,order)=>{cons
  let back=null;for(let i=0;i<20&&!back;i++){await sleep(500);back=await b.evaluate(()=>mode==='net'&&me===2&&NS.reconnects>=1&&!NS.lostT&&units.length>0?{rc:NS.reconnects}:null);}
  const human=await a.evaluate(()=>players[2].isHuman);
  ok(lostShown&&back&&human,'dropped connection: banner, automatic reconnect, same kingdom back under human control (resync) '+JSON.stringify(back));
+ {const r=await b.evaluate(()=>{const k=players[me].keep;let best=null,bd=1e9;for(let y=0;y<MAP;y++)for(let x=0;x<MAP;x++){const t=resT[y*MAP+x];if(t&&RTN[t]==='stone'){const d=Math.hypot(x-k.x,y-k.y);if(d<bd){bd=d;best=[x,y];}}}
+   const ps=units.filter(u=>u.owner===me&&u.type==='peasant').slice(0,2);issue({t:'gather',ids:ps.map(u=>u.id),tx:best[0],ty:best[1]});return ps.length;});
+  let wc=null;for(let i=0;i<20;i++){await sleep(300);wc=await b.evaluate(()=>workerCounts(true));if(wc.stone>=2)break;}
+  const tot=await b.evaluate(()=>units.filter(u=>u.owner===me&&u.type==='peasant'&&!u.inG).length);
+  ok(r===2&&wc.stone>=2&&wc.food+wc.wood+wc.stone+wc.gold+wc.idle+wc.build<=tot,'LAN client: worker counts come from server snapshots (2 peasants sent to stone show up) '+JSON.stringify(wc));}
  await b.screenshot({path:path.join(SHOTS,'ui-lan-large.png')});
  srv.kill();
  ok(errs.length===0,'no page errors'+(errs.length?':\n'+errs.join('\n'):''));

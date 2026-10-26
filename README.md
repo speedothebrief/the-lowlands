@@ -504,6 +504,7 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
 | Rally point | Select a production building, then right-click the map, a resource, or a farm |
 | Control groups | Ctrl/Shift + 1–9 saves a group, 1–9 recalls it (press twice to center on it) |
 | Sound | `M` mute (not while the build menu is open, where M means Market). The **Sound** button in the top bar, the pause menu and the main menu have Master / Music / SFX sliders |
+| Top bar | Next to each resource, a small peasant icon shows how many of your peasants are working it (food = farms and other food; walking to and from the drop-off counts). After the population: idle peasants (click = select the next one, like `.`) and builders. Hover for a tooltip |
 | Misc | `.` next idle peasant, Space jumps to the last alert or your Keep, `H` help, `P`/Esc pause (solo) or menu (LAN), `F` fog toggle (solo) |
 
 Function keys are never used, because browsers already use F1/F5/F11/F12.

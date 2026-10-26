@@ -4,7 +4,7 @@
 <style>html,body{margin:0;height:100%;overflow:hidden;background:#0b0d10}canvas{display:block;cursor:default}</style></head>
 <body><canvas id="c"></canvas>
 <script>
-const APP_VERSION='1.4.2';
+const APP_VERSION='1.4.3';
 /*SIM-BEGIN*/
 'use strict';
 // ===== The Lowlands — single-file RTS =====
@@ -1331,11 +1331,33 @@ function fmtTime(t){t=Math.floor(t);return `${Math.floor(t/60)}:${String(t%60).p
 function drawIconBld(type,x,y,s){const D=BLD[type];ctx.save();const sc=Math.min(.5,42/((D.w+D.h)*32));ctx.translate(x,y+8-((D.w+D.h)*8)*sc+ (D.w===1?6:0));ctx.scale(sc,sc);
  drawBld({type,tx:0,ty:0,w:D.w,h:D.h,x:D.w/2,y:D.h/2,owner:me,built:true,prog:1,hp:1,maxhp:1,id:0});ctx.restore();}
 function drawIconUnit(type,x,y,s=1.4,owner=me){ctx.save();ctx.translate(x,y);ctx.scale(s,s);drawUnit({type,owner,x:0,y:0,dir:1,anim:0,path:null,carry:0},true);ctx.restore();}
+// peasant work counts for the top bar (v1.4.3): own peasants gathering each resource (walking to/from the drop-off included),
+// idle and building/repairing. Works from what clients get in snapshots (state, job, carry type); cached ~4x per second.
+let wkCache=null,wkAt=-1;
+function workerCounts(force){const now=performance.now();if(!force&&wkCache&&now-wkAt<250&&wkCache.me===me)return wkCache;
+ const c={food:0,wood:0,stone:0,gold:0,idle:0,build:0,me};
+ for(const u of units){if(u.dead||u.inG||u.owner!==me||u.type!=='peasant')continue;const s=u.state;
+  if(s==='idle')c.idle++;else if(s==='build')c.build++;
+  else if(s==='gather'||s==='return'||s==='farm'){const r=u.job?(u.job.farm?'food':u.job.rt):u.carryT;if(r&&c[r]!=null)c[r]++;}}
+ wkCache=c;wkAt=now;return c;}
+function peasIcon(x,y,col){ctx.save();ctx.translate(x,y);ctx.fillStyle=col;ctx.beginPath();ctx.arc(0,-3.5,2.6,0,7);ctx.fill();ctx.beginPath();ctx.ellipse(0,4,4.2,4.2,0,Math.PI,0);ctx.fill();
+ ctx.fillStyle='#8a6a3a';ctx.fillRect(-3.6,-6.6,7.2,1.6);ctx.fillRect(-2,-8.4,4,2);ctx.restore();}   // little peasant with a straw hat
+function hammerIcon(x,y){ctx.save();ctx.translate(x,y);ctx.rotate(-.6);ctx.fillStyle='#9a7040';ctx.fillRect(-1,-3,2,10);ctx.fillStyle='#c8c8c8';ctx.fillRect(-4.5,-6,9,4);ctx.restore();}
+function workChip(x,n,col,tipd,on){const s=String(n);ctx.font='bold 12px Georgia, serif';const w=16+ctx.measureText(s).width+4;
+ const hov=btn(x-2,7,w,20,on||(()=>{}),{tip:tipd});if(hov){ctx.fillStyle='rgba(255,230,160,.12)';ctx.fillRect(x-2,7,w,20);}
+ ctx.fillStyle='rgba(0,0,0,.28)';ctx.fillRect(x-2,8,w,18);return w;}
 function drawUI(){uiBtns=[];tip=null;const P=players[me];
  // top bar
  ctx.fillStyle='rgba(28,20,12,.92)';ctx.fillRect(0,0,W,34);ctx.fillStyle='#a08040';ctx.fillRect(0,34,W,2);
- let x=14;for(const r of RES){resIcon(r,x+6,17);text(String(Math.floor(P.res[r])),x+18,22,'#f6ecd2','bold 14px Georgia, serif');x+=86;}
- resIcon('pop',x+6,17);text(`${P.pop}/${P.popCap}`,x+18,22,P.pop>=P.popCap?'#ff8a6a':'#f6ecd2','bold 14px Georgia, serif');x+=86;
+ const WC=workerCounts();let x=14;for(const r of RES){resIcon(r,x+6,17);const amt=String(Math.floor(P.res[r]));text(amt,x+18,22,'#f6ecd2','bold 14px Georgia, serif');ctx.font='bold 14px Georgia, serif';
+  const cx=x+18+Math.max(ctx.measureText('8888').width,ctx.measureText(amt).width)+6,n=WC[r];
+  workChip(cx,n,null,{t:`${r[0].toUpperCase()+r.slice(1)}: ${n} peasant${n===1?'':'s'} working`,d:r==='food'?'Farming or gathering food, including peasants walking to and from the drop-off.':`Gathering ${r}, including peasants walking to and from the drop-off.`});
+  peasIcon(cx+6,18,n?'#e6d6b0':'#8a7a60');text(String(n),cx+13,22,n?'#e6d6b0':'#8a7a60','bold 12px Georgia, serif');ctx.font='bold 12px Georgia, serif';const ce=cx+18+ctx.measureText(String(n)).width;
+  ctx.fillStyle='rgba(160,128,64,.45)';ctx.fillRect(Math.max(ce+9,cx+30),9,1,16);x=Math.max(ce+9,cx+30)+9;}   // divider: each worker chip belongs to the resource on its left
+ resIcon('pop',x+6,17);text(`${P.pop}/${P.popCap}`,x+18,22,P.pop>=P.popCap?'#ff8a6a':'#f6ecd2','bold 14px Georgia, serif');ctx.font='bold 14px Georgia, serif';x+=Math.max(70,18+ctx.measureText(`${P.pop}/${P.popCap}`).width+10);
+ {const n=WC.idle;const w=workChip(x,n,null,{t:`Idle peasants: ${n}`,d:'Click (or press .) to select the next idle peasant.'},selectIdle);peasIcon(x+6,18,n?'#ffc860':'#8a7a60');ctx.fillStyle=n?'#ffc860':'#8a7a60';ctx.font='bold 8px Georgia, serif';ctx.fillText('z',x+9,11);
+  text(String(n),x+13,22,n?'#ffc860':'#8a7a60','bold 12px Georgia, serif');x+=w+6;}
+ {const n=WC.build;const w=workChip(x,n,null,{t:`Builders: ${n}`,d:'Peasants constructing or repairing buildings.'});hammerIcon(x+6,17);text(String(n),x+13,22,n?'#e6d6b0':'#8a7a60','bold 12px Georgia, serif');x+=w+14;}
  text(fmtTime(time),x,22,'#cdbb90','14px Georgia, serif');x+=60;
  {const ag=P.age||0;const lbl=AGES[ag]+(P.nukes?`  ☢×${P.nukes}`:'')+(P.sat?'  🛰':'');text(lbl,x,22,ag===2?'#9fd8ff':ag===1?'#ffd36a':'#cdbb90','bold 14px Georgia, serif');ctx.font='bold 14px Georgia, serif';
   btn(x,6,ctx.measureText(lbl).width,22,()=>{},{tip:{t:'Age: '+AGES[ag],d:ag===0?'Build a University (5,000 of every resource) to enter the Middle Ages.':ag===1?'Build a Research Lab (10,000 of every resource) to enter the Modern Age.':'Modern Age reached. The Research Lab builds nuclear bombs and a satellite.',s:'Unit costs double with each age.'}});x+=ctx.measureText(lbl).width+20;}
@@ -1343,7 +1365,9 @@ function drawUI(){uiBtns=[];tip=null;const P=players[me];
  const b1=btn(rx-60,6,60,22,()=>{state='paused';},{tip:{t:'Pause (P / Esc)'}});ctx.fillStyle=b1?'#6a5030':'#4a3820';ctx.fillRect(rx-60,6,60,22);text('Pause',rx-30,22,'#f0e0b0','13px Georgia, serif','center');rx-=68;
  const b2=btn(rx-56,6,56,22,()=>{showHelp=true;},{tip:{t:'Help (H)'}});ctx.fillStyle=b2?'#6a5030':'#4a3820';ctx.fillRect(rx-56,6,56,22);text('Help',rx-28,22,'#f0e0b0','13px Georgia, serif','center');rx-=66;
  const b3=btn(rx-62,6,62,22,()=>{audioPanelOpen=!audioPanelOpen;},{tip:{t:'Audio settings',d:'Volume sliders. M toggles mute.'}});ctx.fillStyle=audioPanelOpen?'#6a7a3a':b3?'#6a5030':'#4a3820';ctx.fillRect(rx-62,6,62,22);text(AU.S.muted?'Muted':'Sound',rx-31,22,AU.S.muted?'#ff9a8a':'#f0e0b0','13px Georgia, serif','center');const sndX=rx-62;rx-=72;
- const rivals=players.filter(q=>q.id!==me);for(let ri2=rivals.length-1;ri2>=0;ri2--){const q=rivals[ri2];const label=q.isHuman?`${q.short} (${q.pname||'Human'})`:`${q.short} (AI ${PERS[q.pers].label})`;ctx.font='12px Georgia, serif';const w=ctx.measureText(label).width+30;rx-=w;
+ const rivals=players.filter(q=>q.id!==me);const rivLab=(q,l)=>l===0?(q.isHuman?`${q.short} (${q.pname||'Human'})`:`${q.short} (AI ${PERS[q.pers].label})`):l===1?q.short:'';
+ ctx.font='12px Georgia, serif';let lvl=0;while(lvl<2&&rx-rivals.reduce((a,q)=>a+ctx.measureText(rivLab(q,lvl)).width+30,0)<x+6)lvl++;   // narrow windows: rival names shorten, then colour squares only
+ for(let ri2=rivals.length-1;ri2>=0;ri2--){const q=rivals[ri2];const label=rivLab(q,lvl);ctx.font='12px Georgia, serif';const w=ctx.measureText(label).width+30;rx-=w;
   ctx.fillStyle=rgb(q.color,q.surrendered?.4:1);ctx.fillRect(rx,10,10,14);text(label,rx+14,21,q.surrendered?'#777':'#eee','12px Georgia, serif');if(q.surrendered){ctx.strokeStyle='#bbb';ctx.beginPath();ctx.moveTo(rx,17);ctx.lineTo(rx+w-16,17);ctx.stroke();}
   btn(rx,6,w-14,22,()=>{if(!q.surrendered&&q.keep&&!q.keep.dead&&(!fogOn||vis[Math.floor(q.keep.y)*MAP+Math.floor(q.keep.x)]))centerOn(q.keep.x,q.keep.y);},{tip:{t:q.name,d:q.surrendered?'Surrendered.':`${q.isHuman?'Human-ruled':PERS[q.pers].label} kingdom. Destroy its Keep or crush its army and economy to force surrender.`}});}
  // messages
@@ -1384,7 +1408,7 @@ function tradeBtn(x,y,w,label,can,on,tipd){const hov=btn(x,y,w,22,can?on:()=>{AU
 function drawSelInfo(x,y,w){const P=players[me];
  if(!sel.length){text('Nothing selected',x,y+16,'#cdbb90','bold 14px Georgia, serif');
   const lines=['Left-click / drag to select units. Right-click to command.','Peasants: right-click trees, rocks, gold or farms to work.','Build from the menu at left. H = help, P = pause.'];lines.forEach((l,i)=>text(l,x,y+40+i*18,'#bba','12px Georgia, serif'));
-  const idle=units.filter(u=>u.owner===me&&u.type==='peasant'&&u.state==='idle').length;smallBtn(x,y+96,150,24,`Idle peasants: ${idle} (.)`,selectIdle,{t:'Select next idle peasant (.)'});return;}
+  const idle=workerCounts().idle;smallBtn(x,y+96,150,24,`Idle peasants: ${idle} (.)`,selectIdle,{t:'Select next idle peasant (.)'});return;}
  const e=sel[0];
  if(sel.length>1&&sel.every(b=>b.kind==='bld')){const n={};for(const b of sel)n[BLD[b.type].name]=(n[BLD[b.type].name]||0)+1;
   text(`${sel.length} buildings selected`,x,y+16,'#ffe7a8','bold 15px Georgia, serif');text(Object.keys(n).map(k=>n[k]+'× '+k).join(', ').slice(0,120),x,y+36,'#ddd','12px Georgia, serif');
@@ -1442,7 +1466,7 @@ function drawHelp(){uiBtns=[];tip=null;const [x,y]=overlayPanel(Math.min(W-40,90
  ['Goal','Make all three rival kingdoms surrender: destroy their Keep, or crush their army and economy. If your Keep falls, you lose.'],
  ['Camera','WASD / arrow keys, mouse at screen edge, or right/middle-drag to pan. Mouse wheel or +/- to zoom. Click/drag minimap to jump. Space = jump to last alert / Keep.'],
  ['Select','Left-click a unit or building. Drag a box to select many (military is preferred over peasants). Shift adds. Double-click selects all of that type on screen.'],
- ['Command','Right-click ground to move, an enemy to attack. X then left-click = attack-move. C = stop. Ctrl/Shift+1-9 save a group, 1-9 recall it. "." = next idle peasant.'],
+ ['Command','Right-click ground to move, an enemy to attack. X then left-click = attack-move. C = stop. Ctrl/Shift+1-9 save a group, 1-9 recall it. "." = next idle peasant. The top bar shows how many peasants work each resource, how many are idle (click to select one) and how many are building.'],
  ['Economy','Peasants gather wood (trees), stone (grey rocks), gold (glittering rocks): right-click them. Goods are carried to the Keep or nearest Lumber Camp / Quarry / Gold Mine. Farms give food: right-click a farm with peasants (2 per farm). Markets yield gold.'],
  ['Build','B opens the build menu, then a letter: H House, F Farm, L Lumber Camp, Q Quarry, G Gold Mine, M Market, B Barracks, S Stable, W Workshop, A Wall, E Gate, T Tower, O Fortress, U University, R Research Lab (Shift+letter = place several, Esc cancels). Or click a BUILD button. Place anywhere on open, explored ground that is not occupied by buildings, resources, water or enemy units (red ghost = invalid); there is no territory limit, expansion only needs peasants to walk there and build. Selected peasants (or the nearest idle one) walk over and build; more builders = faster (diminishing). Right-click a site or damaged building with peasants to build/repair, or select the building and press N (Repair: nearest idle peasants; costs wood/stone in proportion to damage). Del cancels a site (full refund; 50% back if destroyed unfinished).'],
  ['Market','Select a finished Market to trade at fixed rates, gold only: sell 100 food, wood or stone for 25 gold (4:1), or buy 100 of them for 400 gold (1 for 4). Shift+click trades ×10. Greyed buttons mean you can\'t afford it. A Market also earns +0.5 gold/sec.'],

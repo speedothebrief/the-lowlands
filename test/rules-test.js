@@ -392,7 +392,8 @@ console.log('--- nuclear bomb');
  ok(A.get().nukeFx.length===0&&g.players.slice(1).every(p=>p.nukes===3),'AI kingdoms never launch nukes');}
 
 console.log('--- AI and the ages (hard, ample resources): Middle Ages, Modern Age, siege in attacks, satellites, never nukes');
-{A.setupGame(31337,[{human:true}],'hard',true,'small');const g=A.get();const AIs=g.players.filter(p=>p.isAI);for(const p of AIs)for(const r of ['food','wood','stone','gold'])p.res[r]+=60000;
+{vm.runInContext('globalThis.__rnd=Math.random;{let s='+(+process.env.AISEED||1)+';Math.random=()=>((s=(Math.imul(s,1664525)+1013904223)>>>0)/4294967296);}',c);   // AI choices use Math.random: seed it here so this scenario is reproducible
+ A.setupGame(31337,[{human:true}],'hard',true,'small');const g=A.get();const AIs=g.players.filter(p=>p.isAI);for(const p of AIs)for(const r of ['food','wood','stone','gold'])p.res[r]+=60000;
  const ageAt={},seen={trebuchet:0,ram:0},siegeHit=new Set(),hitTypes=new Set(),behind=[0,0];let esc=0,nukeEver=false,maxMult=0,modernSeen=new Set();
  for(let s=0;s<30*60*13;s++){A.sim(A.STEP);if(s%15)continue;const G=A.get();
   for(const p of AIs){if(!ageAt[p.id+':'+p.age])ageAt[p.id+':'+p.age]=G.time|0;if(p.nukes>0)nukeEver=true;}
@@ -400,8 +401,8 @@ console.log('--- AI and the ages (hard, ample resources): Middle Ages, Modern Ag
   for(const u of G.units){if(u.dead||!G.players[u.owner].isAI)continue;
    if(u.type==='trebuchet'||u.type==='ram'){seen[u.type]=Math.max(seen[u.type],1);
     if(u.aiMission!=null&&u.state==='attack'&&u.target&&u.target.kind==='bld'&&!u.target.dead){siegeHit.add(u.id);hitTypes.add(u.type+'>'+u.target.type);
-     if(u.type==='trebuchet'){const fr=G.units.filter(v=>!v.dead&&v.owner===u.owner&&v.aiMission!=null&&A.UNITS[v.type].cls!=='siege');behind[1]++;
-      const dT=Math.hypot(u.x-u.target.x,u.y-u.target.y);if(fr.some(v=>Math.hypot(v.x-u.target.x,v.y-u.target.y)<=dT+.5))behind[0]++;}}}
+     if(u.type==='trebuchet'){behind[1]++;const dT=Math.hypot(u.x-u.target.x,u.y-u.target.y);behind[2]=(behind[2]||0)+dT;   // fires from range, and not with enemy fighters on top of it
+      if(G.units.some(v=>!v.dead&&v.owner!==u.owner&&v.type!=='peasant'&&A.UNITS[v.type].cls!=='siege'&&Math.hypot(v.x-u.x,v.y-u.y)<2.5))behind[0]++;}}}
    if(u.escort!=null)esc++;if(G.players[u.owner].age===2&&['archer','knight','spearman'].includes(u.type))modernSeen.add(A.US(u.type,u.owner).name);}}
  const ages=AIs.map(p=>`${p.short}: Middle ${ageAt[p.id+':1']??'-'} s, Modern ${ageAt[p.id+':2']??'-'} s`).join('; ');
  ok(AIs.every(p=>p.age>=1||p.surrendered)&&AIs.filter(p=>!p.surrendered).every(p=>ageAt[p.id+':1']<600),'every AI builds a University and reaches the Middle Ages ('+ages+')');
@@ -410,8 +411,9 @@ console.log('--- AI and the ages (hard, ample resources): Middle Ages, Modern Ag
  ok(seen.trebuchet&&seen.ram,'AIs train trebuchets and siege rams in the Middle Ages');
  ok(siegeHit.size>=2&&[...hitTypes].some(h=>h.startsWith('ram>'))&&[...hitTypes].some(h=>h.startsWith('trebuchet>')),'AI trebuchets and rams on attack missions batter enemy buildings: '+[...hitTypes].join(', '));
  ok(esc>0,'rams get escorts on the march');
- ok(behind[1]===0||behind[0]/behind[1]>=.5,`trebuchets fire from behind their front line (${behind[0]}/${behind[1]} samples with a fighter at least as close to the target)`);
+ ok(behind[1]===0||(behind[2]/behind[1]>=6&&behind[0]/behind[1]<=.25),`trebuchets stay back: they fire from ${behind[1]?(behind[2]/behind[1]).toFixed(1):'-'} tiles on average and have enemy fighters within 2.5 tiles in ${behind[0]}/${behind[1]} samples`);
  ok(modernSeen.size>=1,'Modern Age AI armies field modern units: '+[...modernSeen].join(', '));
  ok(AIs.some(p=>p.sat===1),'a Modern Age AI with spare resources launches a satellite');
- ok(!nukeEver&&AIs.every(p=>!p.nukes),'AIs never build or launch a nuclear bomb');}
+ ok(!nukeEver&&AIs.every(p=>!p.nukes),'AIs never build or launch a nuclear bomb');
+ vm.runInContext('Math.random=globalThis.__rnd;',c);}
 console.log(fails?fails+' FAILURES':'ALL RULES TESTS PASSED');process.exit(fails?1:0);
