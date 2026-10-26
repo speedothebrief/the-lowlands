@@ -16,14 +16,14 @@ const GRATE={wood:0.85,stone:0.7,gold:0.7}, FARM_RATE=0.6;
 
 const UNITS={
  peasant:{name:'Peasant',hp:40,atk:3,range:0.6,cd:1.2,speed:1.75,sight:6,cost:{food:50},time:10,pop:1,cls:'inf',val:30,desc:'Gathers wood, stone, gold and farms food.'},
- spearman:{name:'Spearman',hp:95,atk:8,range:0.7,cd:1.1,speed:1.6,sight:7,cost:{food:50,wood:25},time:13,pop:1,cls:'inf',val:75,desc:'Sturdy infantry. x3 damage vs knights.'},
+ spearman:{name:'Spearman',hp:95,atk:8,range:0.7,cd:1.1,speed:1.6,sight:7,cost:{food:50,wood:25},time:13,pop:1,cls:'inf',val:75,desc:'Sturdy infantry. x3 damage vs knights; weak vs buildings (x0.25).'},
  archer:{name:'Archer',hp:60,atk:7,range:5.5,cd:1.5,speed:1.6,sight:8,cost:{food:30,wood:40,gold:15},time:14,pop:1,cls:'rng',val:85,proj:'arrow',desc:'Ranged. Good vs infantry, weak vs knights.'},
  knight:{name:'Knight',hp:170,atk:13,range:0.8,cd:1.3,speed:2.7,sight:8,cost:{food:80,gold:75},time:20,pop:2,cls:'cav',val:155,desc:'Fast heavy cavalry. Crushes archers & siege.'},
  catapult:{name:'Catapult',hp:130,atk:34,range:8.5,minRange:2.2,cd:4.5,speed:0.9,sight:12,cost:{wood:150,stone:60,gold:60},time:28,pop:3,cls:'siege',val:270,proj:'stone',splash:1.1,bldPref:true,desc:'Long-range siege (range 8.5, sees 12 tiles). Devastating vs buildings.'},
  trebuchet:{name:'Trebuchet',hp:220,atk:70,range:12,minRange:3.5,cd:7,speed:0.65,sight:13,cost:{wood:300,stone:150,gold:150},time:40,pop:4,cls:'siege',val:450,proj:'stone',splash:1.4,age:1,bldPref:true,desc:'Middle Ages heavy siege: range 12 (min 3.5), huge stones. Smashes buildings, slow to reload and move.'},
  ram:{name:'Siege Ram',hp:500,atk:40,range:0.9,cd:3,speed:1.1,sight:6,cost:{wood:250,gold:100},time:30,pop:3,cls:'siege',val:300,age:1,bldPref:true,desc:'Middle Ages armored ram: x5 damage vs buildings, very tough, nearly harmless to units.'},
 };
-const BONUS={trebuchet:{bld:4,inf:0.6,cav:0.5,rng:0.6,siege:1.5},ram:{bld:5,inf:0.15,cav:0.15,rng:0.15,siege:0.5},peasant:{bld:0.3},spearman:{cav:3,bld:0.5},archer:{inf:1.25,cav:0.7,bld:0.15,siege:0.6},knight:{rng:1.6,siege:1.5,bld:0.5},catapult:{bld:3.5,inf:0.8,cav:0.6,rng:0.8,siege:1.5},tower:{cav:0.9,siege:0.8},fortb:{bld:0.25}};
+const BONUS={trebuchet:{bld:4,inf:0.6,cav:0.5,rng:0.6,siege:1.5},ram:{bld:5,inf:0.15,cav:0.15,rng:0.15,siege:0.5},peasant:{bld:0.3},spearman:{cav:3,bld:0.25},archer:{inf:1.25,cav:0.7,bld:0.15,siege:0.6},knight:{rng:1.6,siege:1.5,bld:0.5},catapult:{bld:3.5,inf:0.8,cav:0.6,rng:0.8,siege:1.5},tower:{cav:0.9,siege:0.8},fortb:{bld:0.25}};
 const ALLRES=['food','wood','stone','gold'];
 const BLD={
  keep:{name:'Keep',w:3,h:3,hp:3000,cost:{},time:1,pop:10,drop:ALLRES,train:['peasant'],shoot:{range:7,atk:10,cd:0.8,n:4},gar:40,sight:10,val:600,desc:'Heart of your kingdom: fires 4 arrows every 0.8 s (+1 per garrisoned unit, +2 per archer). Lose it and you are defeated.'},
@@ -49,7 +49,7 @@ const AGES=['Early Age','Middle Ages','Modern Age'];
 const MODERN={
  archer:{name:'Machine Gunner',proj:'bullet',desc:'Modern ranged infantry: rapid bullets. Good vs infantry, weak vs tanks.'},
  knight:{name:'Tank',range:8,sight:10,proj:'tshell',desc:'Modern armor: fires shells out to 8 tiles (sees 10). Fast, heavily armored. Crushes gunners & artillery.'},
- spearman:{name:'Infantry',range:3,proj:'bullet',desc:'Modern riflemen: fire 3 tiles. x3 damage vs tanks.'},
+ spearman:{name:'Infantry',range:3,proj:'bullet',desc:'Modern riflemen: fire 3 tiles. x3 damage vs tanks; weak vs buildings (x0.25).'},
  trebuchet:{name:'Howitzer',desc:'Modern artillery: range 12 (min 3.5), heavy shells. Smashes buildings.'},
 };
 const NUKE={cost:{food:10000,wood:10000,stone:10000,gold:10000},time:150,radius:30};

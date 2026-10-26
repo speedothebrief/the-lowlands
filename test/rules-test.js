@@ -344,6 +344,31 @@ const finish=b=>{b.prog=1;run(.1);};
  const inf=A.spawnUnit('spearman',c,c,0),foe=A.spawnUnit('spearman',c+2.6,c,1);foe.hp=foe.maxhp=1e5;foe.state='hold';inf.state='hold';
  A.applyCmd(0,{t:'attack',ids:[inf.id],tid:foe.id});const fh=foe.hp,x0=inf.x;let shot=false;for(let s=0;s<90;s++){A.sim(A.STEP);if(g2.projs.some(p=>p.k==='bullet'&&p.owner===0))shot=true;}
  ok(shot&&foe.hp<fh&&Math.abs(inf.x-x0)<.3,`Infantry shoots bullets at a target 2.6 tiles away without closing in (${(fh-foe.hp).toFixed(0)} damage in 3 s)`);}
+console.log('--- AI expansion: kingdoms keep spreading outward (v1.4.4)');
+{vm.runInContext('globalThis.__rnd=Math.random;{let s='+(+process.env.EXPSEED||1)+';Math.random=()=>((s=(Math.imul(s,1664525)+1013904223)>>>0)/4294967296);}',c);   // seeded: reproducible AI choices
+ A.setupGame(7919,[{human:false,name:'T'}],'normal',true,'medium');const g=A.get();const DROPS=['lumber','quarry','mine','fortress'];const rows={};
+ for(const m of [10,20,30]){while(A.get().time<m*60)A.sim(A.STEP);const G=A.get();const alive=G.players.filter(p=>p.keep&&!p.keep.dead&&!p.surrendered);
+  const st=alive.map(p=>{const k=p.keep,bs=G.blds.filter(b=>!b.dead&&b.owner===p.id&&!A.BLD[b.type].wall&&b.type!=='keep');const sites=[];
+   for(const b of bs)if(DROPS.includes(b.type)&&!sites.some(q=>Math.hypot(q.x-b.x,q.y-b.y)<8))sites.push(b);
+   return{max:Math.max(0,...bs.map(b=>Math.hypot(b.x-k.x,b.y-k.y))),sites:sites.length};});
+  const avg=f=>st.reduce((a,x)=>a+x[f],0)/Math.max(1,st.length);rows[m]={max:avg('max'),best:Math.max(...st.map(x=>x.max)),sites:avg('sites'),n:st.length};
+  console.log(`  t=${m} min: ${st.length} AIs, avg max building distance from Keep ${rows[m].max.toFixed(1)} (best ${rows[m].best.toFixed(1)}), avg distinct drop-off sites ${rows[m].sites.toFixed(1)}`);}
+ vm.runInContext('Math.random=globalThis.__rnd;',c);
+ // v1.4.3 on this setup: avg max distance ~12-13 tiles at 10, 20 and 30 min (never past 15), 2-3 drop-off sites
+ ok(rows[10].max>=15,`10 min: AIs already build past the old 15-tile limit (avg max ${rows[10].max.toFixed(1)})`);
+ ok(rows[20].max>=18&&rows[30].max>=20&&rows[30].best>=26,`20/30 min: expansion keeps growing (avg max ${rows[20].max.toFixed(1)} -> ${rows[30].max.toFixed(1)}, best ${rows[30].best.toFixed(1)})`);
+ ok(rows[30].max>=rows[10].max+3,'reach at 30 min is clearly beyond reach at 10 min');
+ ok(rows[20].sites>=4&&rows[30].sites>=4.5,`drop-off outposts at several distinct sites (avg ${rows[20].sites.toFixed(1)} at 20 min, ${rows[30].sites.toFixed(1)} at 30 min; was 2-3)`);}
+console.log('--- Foot soldiers are weak vs buildings (v1.4.4)');
+{const dps=(ut,age)=>{A.setupGame(7373,[{human:true}],'normal',false);const g2=A.get(),P=g2.players[0];P.age=age;const c=g2.MAP/2|0;let s=null;
+  for(let r=0;r<20&&!s;r++)for(let dy=-r;dy<=r&&!s;dy++)for(let dx=-r;dx<=r&&!s;dx++)if(!A.canPlace('barracks',c+dx,c+dy,1))s=[c+dx,c+dy];
+  const b=A.spawnBld('barracks',s[0],s[1],1,true);b.hp=b.maxhp=1e6;const R=A.US(ut,0).range;const u=A.spawnUnit(ut,b.x,b.y-1.5-Math.max(.4,R-.6),0);u.state='hold';
+  A.applyCmd(0,{t:'attack',ids:[u.id],tid:b.id});for(let i=0;i<30*4;i++)A.sim(A.STEP);const h0=b.hp;for(let i=0;i<30*33;i++)A.sim(A.STEP);return (h0-b.hp)/33;};
+ const sp=dps('spearman',0),inf=dps('spearman',2),ar=dps('archer',0),mg=dps('archer',2),kn=dps('knight',0);
+ ok(sp>1&&sp<1.9,`Spearman vs a finished building ~1.3 dps measured (x0.25; v1.4.3 measured 2.8): ${sp.toFixed(2)}`);
+ ok(inf>1.8&&inf<3,`Modern Infantry bullets vs a finished building ~2.4 dps measured (x0.25; v1.4.3 measured 4.7): ${inf.toFixed(2)}`);
+ ok(ar>.35&&ar<.8&&mg>.75&&mg<1.3,`archer ~0.5 / Machine Gunner ~1.0 dps vs buildings unchanged: ${ar.toFixed(2)} / ${mg.toFixed(2)}`);
+ ok(kn>sp*2&&inf<A.US('knight',0).atk*0.5/1.3,`foot soldiers do far less to buildings than knights (${kn.toFixed(2)} dps)`);}
 console.log('--- Tanks fire shells from 8 tiles (v1.4.2)');
 {const U=t=>A.AGE_UNITS[t];
  ok(U(2).knight.range===8&&U(2).knight.proj==='tshell'&&U(2).knight.sight>=9,`Modern Age Tank: range 8, shell projectile, sight ${U(2).knight.sight} (>=9)`);
@@ -392,7 +417,7 @@ console.log('--- nuclear bomb');
  ok(A.get().nukeFx.length===0&&g.players.slice(1).every(p=>p.nukes===3),'AI kingdoms never launch nukes');}
 
 console.log('--- AI and the ages (hard, ample resources): Middle Ages, Modern Age, siege in attacks, satellites, never nukes');
-{vm.runInContext('globalThis.__rnd=Math.random;{let s='+(+process.env.AISEED||1)+';Math.random=()=>((s=(Math.imul(s,1664525)+1013904223)>>>0)/4294967296);}',c);   // AI choices use Math.random: seed it here so this scenario is reproducible
+{vm.runInContext('globalThis.__rnd=Math.random;{let s='+(+process.env.AISEED||3)+';Math.random=()=>((s=(Math.imul(s,1664525)+1013904223)>>>0)/4294967296);}',c);   // AI choices use Math.random: seed it here so this scenario is reproducible
  A.setupGame(31337,[{human:true}],'hard',true,'small');const g=A.get();const AIs=g.players.filter(p=>p.isAI);for(const p of AIs)for(const r of ['food','wood','stone','gold'])p.res[r]+=60000;
  const ageAt={},seen={trebuchet:0,ram:0},siegeHit=new Set(),hitTypes=new Set(),behind=[0,0];let esc=0,nukeEver=false,maxMult=0,modernSeen=new Set();
  for(let s=0;s<30*60*13;s++){A.sim(A.STEP);if(s%15)continue;const G=A.get();

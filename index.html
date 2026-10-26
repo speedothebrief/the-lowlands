@@ -4,7 +4,7 @@
 <style>html,body{margin:0;height:100%;overflow:hidden;background:#0b0d10}canvas{display:block;cursor:default}</style></head>
 <body><canvas id="c"></canvas>
 <script>
-const APP_VERSION='1.4.3';
+const APP_VERSION='1.4.4';
 /*SIM-BEGIN*/
 'use strict';
 // ===== The Lowlands — single-file RTS =====
@@ -24,14 +24,14 @@ const GRATE={wood:0.85,stone:0.7,gold:0.7}, FARM_RATE=0.6;
 
 const UNITS={
  peasant:{name:'Peasant',hp:40,atk:3,range:0.6,cd:1.2,speed:1.75,sight:6,cost:{food:50},time:10,pop:1,cls:'inf',val:30,desc:'Gathers wood, stone, gold and farms food.'},
- spearman:{name:'Spearman',hp:95,atk:8,range:0.7,cd:1.1,speed:1.6,sight:7,cost:{food:50,wood:25},time:13,pop:1,cls:'inf',val:75,desc:'Sturdy infantry. x3 damage vs knights.'},
+ spearman:{name:'Spearman',hp:95,atk:8,range:0.7,cd:1.1,speed:1.6,sight:7,cost:{food:50,wood:25},time:13,pop:1,cls:'inf',val:75,desc:'Sturdy infantry. x3 damage vs knights; weak vs buildings (x0.25).'},
  archer:{name:'Archer',hp:60,atk:7,range:5.5,cd:1.5,speed:1.6,sight:8,cost:{food:30,wood:40,gold:15},time:14,pop:1,cls:'rng',val:85,proj:'arrow',desc:'Ranged. Good vs infantry, weak vs knights.'},
  knight:{name:'Knight',hp:170,atk:13,range:0.8,cd:1.3,speed:2.7,sight:8,cost:{food:80,gold:75},time:20,pop:2,cls:'cav',val:155,desc:'Fast heavy cavalry. Crushes archers & siege.'},
  catapult:{name:'Catapult',hp:130,atk:34,range:8.5,minRange:2.2,cd:4.5,speed:0.9,sight:12,cost:{wood:150,stone:60,gold:60},time:28,pop:3,cls:'siege',val:270,proj:'stone',splash:1.1,bldPref:true,desc:'Long-range siege (range 8.5, sees 12 tiles). Devastating vs buildings.'},
  trebuchet:{name:'Trebuchet',hp:220,atk:70,range:12,minRange:3.5,cd:7,speed:0.65,sight:13,cost:{wood:300,stone:150,gold:150},time:40,pop:4,cls:'siege',val:450,proj:'stone',splash:1.4,age:1,bldPref:true,desc:'Middle Ages heavy siege: range 12 (min 3.5), huge stones. Smashes buildings, slow to reload and move.'},
  ram:{name:'Siege Ram',hp:500,atk:40,range:0.9,cd:3,speed:1.1,sight:6,cost:{wood:250,gold:100},time:30,pop:3,cls:'siege',val:300,age:1,bldPref:true,desc:'Middle Ages armored ram: x5 damage vs buildings, very tough, nearly harmless to units.'},
 };
-const BONUS={trebuchet:{bld:4,inf:0.6,cav:0.5,rng:0.6,siege:1.5},ram:{bld:5,inf:0.15,cav:0.15,rng:0.15,siege:0.5},peasant:{bld:0.3},spearman:{cav:3,bld:0.5},archer:{inf:1.25,cav:0.7,bld:0.15,siege:0.6},knight:{rng:1.6,siege:1.5,bld:0.5},catapult:{bld:3.5,inf:0.8,cav:0.6,rng:0.8,siege:1.5},tower:{cav:0.9,siege:0.8},fortb:{bld:0.25}};
+const BONUS={trebuchet:{bld:4,inf:0.6,cav:0.5,rng:0.6,siege:1.5},ram:{bld:5,inf:0.15,cav:0.15,rng:0.15,siege:0.5},peasant:{bld:0.3},spearman:{cav:3,bld:0.25},archer:{inf:1.25,cav:0.7,bld:0.15,siege:0.6},knight:{rng:1.6,siege:1.5,bld:0.5},catapult:{bld:3.5,inf:0.8,cav:0.6,rng:0.8,siege:1.5},tower:{cav:0.9,siege:0.8},fortb:{bld:0.25}};
 const ALLRES=['food','wood','stone','gold'];
 const BLD={
  keep:{name:'Keep',w:3,h:3,hp:3000,cost:{},time:1,pop:10,drop:ALLRES,train:['peasant'],shoot:{range:7,atk:10,cd:0.8,n:4},gar:40,sight:10,val:600,desc:'Heart of your kingdom: fires 4 arrows every 0.8 s (+1 per garrisoned unit, +2 per archer). Lose it and you are defeated.'},
@@ -57,7 +57,7 @@ const AGES=['Early Age','Middle Ages','Modern Age'];
 const MODERN={
  archer:{name:'Machine Gunner',proj:'bullet',desc:'Modern ranged infantry: rapid bullets. Good vs infantry, weak vs tanks.'},
  knight:{name:'Tank',range:8,sight:10,proj:'tshell',desc:'Modern armor: fires shells out to 8 tiles (sees 10). Fast, heavily armored. Crushes gunners & artillery.'},
- spearman:{name:'Infantry',range:3,proj:'bullet',desc:'Modern riflemen: fire 3 tiles. x3 damage vs tanks.'},
+ spearman:{name:'Infantry',range:3,proj:'bullet',desc:'Modern riflemen: fire 3 tiles. x3 damage vs tanks; weak vs buildings (x0.25).'},
  trebuchet:{name:'Howitzer',desc:'Modern artillery: range 12 (min 3.5), heavy shells. Smashes buildings.'},
 };
 const NUKE={cost:{food:10000,wood:10000,stone:10000,gold:10000},time:150,radius:30};
@@ -654,23 +654,74 @@ function launchSat(P,lab){P.sat=1;nukeFx.push({sat:1,sx:lab.x,sy:lab.y,tx:lab.x,
 // ===== AI =====
 function initAI(p){const P=PERS[p.pers],Df=DIFF[difficulty];
  p.inc={food:0,wood:0,stone:0,gold:0};p.ai={bank:null,tick:Math.random(),nextWave:P.firstAttack*Df.tm,waveSize:Math.max(3,Math.round(P.wave*Df.wm)),ring:null,ringSet:null,ringIdx:0,saveFor:null,lastWarn:-99};
- if(P.walls){const k=p.keep;const cx=Math.floor(k.x),cy=Math.floor(k.y),R=10;const ring=[];const set=new Set();
+ if(P.walls){const k=p.keep;const cx=Math.floor(k.x),cy=Math.floor(k.y),R=MAP>100?15:12;const ring=[];const set=new Set();   // v1.4.4: a roomier ring (was 10) with a gate every 6 tiles, so the town can grow inside and spill out through many gates
   const add=(x,y,g)=>{if(!inb(x,y))return;const i=y*MAP+x;if(set.has(i))return;set.add(i);ring.push({x,y,g});};
-  for(let x=cx-R;x<=cx+R;x++){add(x,cy-R,x===cx);add(x,cy+R,x===cx);}
-  for(let y=cy-R+1;y<cy+R;y++){add(cx-R,y,y===cy);add(cx+R,y,y===cy);}
+  for(let x=cx-R;x<=cx+R;x++){add(x,cy-R,(x-cx)%6===0);add(x,cy+R,(x-cx)%6===0);}
+  for(let y=cy-R+1;y<cy+R;y++){add(cx-R,y,(y-cy)%6===0);add(cx+R,y,(y-cy)%6===0);}
   ring.sort((a,b)=>(b.g?1:0)-(a.g?1:0));p.ai.ring=ring;p.ai.ringSet=set;}}
 // the AI's own spending check: an optional reserve (80% of a cost it is saving for) plus its age-building savings (p.ai.bank) stay untouched
 function affordRes(p,c,reserve){const bk=p.ai&&p.ai.bank;for(const r of RES){const need=(c[r]||0)+(reserve?(reserve[r]||0)*.8:0)+(bk?bk[r]||0:0);if(p.res[r]<need)return false;}return true;}
 // placement is no longer limited by territory: the AI keeps its own buildings away from enemy bases
-function aiSafe(p,x,y){for(const b of blds)if(!b.dead&&isEnemy(p.id,b.owner)&&!BLD[b.type].wall&&dist(x,y,b.x,b.y)<14)return false;return true;}
-function aiFindSpot(p,type){const D=BLD[type];const k=p.keep;let cx=k.x,cy=k.y,r0=3,r1=15;
- if(D.drop&&type!=='fortress'){const n=nearestRes(RT[D.drop[0]],k.x,k.y,20,false);if(n){cx=n[0]+.5;cy=n[1]+.5;r0=1;r1=7;}}
- else if(type==='tower'){const a=Math.random()*Math.PI*2;const rad=p.ai.ring?8:rr(5,9);cx=k.x+Math.cos(a)*rad;cy=k.y+Math.sin(a)*rad;r0=0;r1=5;}
- else if(type==='farm'){r0=2;r1=12;}
- for(let r=r0;r<=r1;r++){const cands=[];for(let y=-r;y<=r;y++)for(let x=-r;x<=r;x++){if(Math.max(Math.abs(x),Math.abs(y))!==r)continue;cands.push([Math.round(cx+x-D.w/2),Math.round(cy+y-D.h/2)]);}
-  cands.sort(()=>Math.random()-.5);for(const c of cands)if(aiSafe(p,c[0]+D.w/2,c[1]+D.h/2)&&!canPlace(type,c[0],c[1],p.id,p.ai))return c;}
- if(D.drop&&type!=='fortress'){for(let r=3;r<=14;r++){for(let y=-r;y<=r;y++)for(let x=-r;x<=r;x++){if(Math.max(Math.abs(x),Math.abs(y))!==r)continue;const tx=Math.round(k.x+x-1),ty=Math.round(k.y+y-1);if(aiSafe(p,tx+D.w/2,ty+D.h/2)&&!canPlace(type,tx,ty,p.id,p.ai))return [tx,ty];}}}
+// ===== expansion (v1.4.4): the AI's reach grows with game time, population and exhausted resources; drop-offs become outposts
+// at fresh resource patches further out, houses/farms/towers spread around the outposts and Fortresses, and big buildings move
+// out once the core is full. Everything stays well away from enemy bases.
+const EXP_D={easy:.7,normal:1,hard:1.25},EXP_P={aggressive:.9,builder:1.25,defensive:.85};
+const expF=p=>(EXP_D[difficulty]||1)*(EXP_P[p.pers]||1);
+function aiReach(p){return clamp(14+(time/60)*.8*expF(p)+p.pop*.06*expF(p)+(p.ai.dry||0)*3,14,Math.max(20,MAP*(MAP<120?.25:.33)));}
+const DROP_OF={wood:'lumber',stone:'quarry',gold:'mine'};
+// enemy bases: never within 14 of an enemy building, and always clearly closer to our own Keep than to any enemy Keep
+function aiSafeCtx(p){const eb=[],ek=[];for(const b of blds){if(b.dead||!isEnemy(p.id,b.owner)||BLD[b.type].wall)continue;eb.push(b);if(b.type==='keep')ek.push(b);}return{eb,ek,k:p.keep};}
+function aiSafe2(S,x,y){for(const b of S.eb)if(Math.abs(b.x-x)<14&&Math.abs(b.y-y)<14&&dist(x,y,b.x,b.y)<14)return false;const dk=dist(x,y,S.k.x,S.k.y);for(const e of S.ek){const de=dist(x,y,e.x,e.y);if(de<24||de<dk+(MAP<120?9:6))return false;}return true;}
+function aiSafe(p,x,y){return aiSafe2(aiSafeCtx(p),x,y);}
+// resource tiles of type rt within R of (x,y)
+function resNear(rt,x,y,R){const c=RT[rt];let n=0;x=Math.floor(x);y=Math.floor(y);for(let yy=Math.max(0,y-R);yy<=Math.min(MAP-1,y+R);yy++)for(let xx=Math.max(0,x-R);xx<=Math.min(MAP-1,x+R);xx++)if(resT[yy*MAP+xx]===c)n++;return n;}
+// drop-offs accepting rt, each with the resource still around it (cached for 8 s)
+function aiDrops(p,rt){const A=p.ai;if(!A.cov||time-A.cov.t>8)A.cov={t:time,m:new Map()};const out=[];
+ for(const b of blds){if(b.dead||b.owner!==p.id||!b.built)continue;const D=BLD[b.type];if(!D.drop||!D.drop.includes(rt))continue;const key=b.id+rt;let n=A.cov.m.get(key);if(n==null){n=resNear(rt,b.x,b.y,7);A.cov.m.set(key,n);}out.push([b,n]);}
+ return out;}
+const COV_MIN={wood:14,stone:4,gold:4};
+const covered=(p,rt)=>aiDrops(p,rt).some(([b,n])=>n>=COV_MIN[rt]);
+// where a gatherer of rt should go: the drop-off with the most resource left per worker already there (outposts get staffed)
+function aiGatherSpot(p,rt,u){const ds=aiDrops(p,rt);let best=null,bs=-1e9;
+ for(const [b,n] of ds){if(n<1)continue;let w=0;for(const v of units)if(!v.dead&&v.owner===p.id&&v.job&&v.job.rt===rt&&Math.abs(v.job.tx-b.x)<9&&Math.abs(v.job.ty-b.y)<9)w++;
+  const s=Math.min(n,rt==='wood'?24:8)/(w+1)-dist(u.x,u.y,b.x,b.y)/40;if(s>bs){bs=s;best=b;}}
+ const R=30*mapF()|0;return (best&&nearestRes(RT[rt],best.x,best.y,10,true,u))||nearestRes(RT[rt],u.x,u.y,R,true,u)||nearestRes(RT[rt],p.keep.x,p.keep.y,R,true,u);}
+// a site for a new drop-off: the richest uncovered patch of rt within reach, preferring nearer ones
+function aiOutpostSpot(p,type,S){const rt=BLD[type].drop[0],c=RT[rt],k=p.keep,R=Math.floor(aiReach(p)),D=BLD[type];
+ const mine=blds.filter(b=>!b.dead&&b.owner===p.id&&BLD[b.type].drop&&BLD[b.type].drop.includes(rt));const cands=[];
+ const kx=Math.floor(k.x),ky=Math.floor(k.y);
+ for(let y=Math.max(1,ky-R);y<=Math.min(MAP-2,ky+R);y+=2)for(let x=Math.max(1,kx-R);x<=Math.min(MAP-2,kx+R);x+=2){if(resT[y*MAP+x]!==c)continue;const dk=dist(x,y,k.x,k.y);if(dk>R)continue;
+  if(mine.some(b=>Math.abs(b.x-x)<8&&Math.abs(b.y-y)<8))continue;const rich=resNear(rt,x,y,4);if(rich<(rt==='wood'?8:3))continue;if(!aiSafe2(S,x,y))continue;
+  cands.push([dk-Math.min(rich,rt==='wood'?30:12)*.5,x,y]);}
+ cands.sort((a,b)=>a[0]-b[0]);
+ for(const [,x,y] of cands.slice(0,6))for(let r=1;r<=4;r++){const ring=[];for(let yy=-r;yy<=r;yy++)for(let xx=-r;xx<=r;xx++)if(Math.max(Math.abs(xx),Math.abs(yy))===r)ring.push([Math.round(x+.5+xx-D.w/2),Math.round(y+.5+yy-D.h/2)]);
+  ring.sort(()=>Math.random()-.5);for(const q of ring)if(!canPlace(type,q[0],q[1],p.id,p.ai)&&aiSafe2(S,q[0]+D.w/2,q[1]+D.h/2))return q;}
  return null;}
+// rings r0..r1 around (cx,cy), random order within a ring; then up to n random spots out to the AI's reach (nearest to the centre wins)
+function aiRingSpot(p,type,cx,cy,r0,r1,S){const D=BLD[type];
+ for(let r=r0;r<=r1;r++){const cands=[];for(let y=-r;y<=r;y++)for(let x=-r;x<=r;x++){if(Math.max(Math.abs(x),Math.abs(y))!==r)continue;cands.push([Math.round(cx+x-D.w/2),Math.round(cy+y-D.h/2)]);}
+  cands.sort(()=>Math.random()-.5);for(const c of cands)if(!canPlace(type,c[0],c[1],p.id,p.ai)&&aiSafe2(S,c[0]+D.w/2,c[1]+D.h/2))return c;}
+ return null;}
+function aiFarSpot(p,type,S,n){const D=BLD[type],k=p.keep,R=aiReach(p);let best=null,bd=1e9;
+ for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,rad=14+Math.random()*(R-14);const tx=Math.round(k.x+Math.cos(a)*rad-D.w/2),ty=Math.round(k.y+Math.sin(a)*rad-D.h/2);
+  if(rad>=bd||canPlace(type,tx,ty,p.id,p.ai)||!aiSafe2(S,tx+D.w/2,ty+D.h/2))continue;bd=rad;best=[tx,ty];}
+ return best;}
+// outposts: own drop-offs (and Fortresses) more than 12 tiles from the Keep
+const aiOutposts=p=>blds.filter(b=>!b.dead&&b.owner===p.id&&b.built&&(b.type==='fortress'||DROP_OF[BLD[b.type].drop&&BLD[b.type].drop[0]]===b.type)&&dist(b.x,b.y,p.keep.x,p.keep.y)>12);
+function aiFindSpot(p,type){const D=BLD[type];const k=p.keep;const S=aiSafeCtx(p);
+ if(D.drop&&type!=='fortress')return aiOutpostSpot(p,type,S)||(blds.some(b=>!b.dead&&b.owner===p.id&&b.type===type)?null:aiRingSpot(p,type,k.x,k.y,3,14,S));
+ if(type==='tower'){const op=aiOutposts(p).filter(b=>b.type!=='fortress'&&!blds.some(t=>!t.dead&&t.owner===p.id&&t.type==='tower'&&dist(t.x,t.y,b.x,b.y)<8));
+  if(op.length){op.sort((a,b)=>dist(b.x,b.y,k.x,k.y)-dist(a.x,a.y,k.x,k.y));const s=aiRingSpot(p,type,op[0].x,op[0].y,2,5,S);if(s)return s;}
+  const a=Math.random()*Math.PI*2;const rad=p.ai.ring?(MAP>100?11:9):rr(5,9);return aiRingSpot(p,type,k.x+Math.cos(a)*rad,k.y+Math.sin(a)*rad,0,5,S);}
+ if(type==='fortress'&&blds.some(b=>!b.dead&&b.owner===p.id&&b.type==='fortress')){   // a second Fortress anchors the farthest outpost
+  const op=aiOutposts(p).filter(b=>b.type!=='fortress');op.sort((a,b)=>dist(b.x,b.y,k.x,k.y)-dist(a.x,a.y,k.x,k.y));
+  for(const b of op.slice(0,3)){const s=aiRingSpot(p,type,b.x,b.y,3,7,S);if(s)return s;}return aiFarSpot(p,type,S,200);}
+ if(type==='farm'||type==='house'){// around the Keep, Fortresses and (houses) outposts: the anchor with the fewest of that building nearby first
+  const anc=[k,...blds.filter(b=>!b.dead&&b.owner===p.id&&b.built&&b.type==='fortress')];if(type==='house')anc.push(...aiOutposts(p).filter(b=>b.type!=='fortress'));
+  const sc=a=>blds.filter(b=>!b.dead&&b.owner===p.id&&b.type===type&&dist(b.x,b.y,a.x,a.y)<9).length+(a===k?0:.5);anc.sort((a,b)=>sc(a)-sc(b));
+  for(const a of anc){const s=type==='farm'?aiRingSpot(p,type,a.x,a.y,2,a===k?12:8,S):aiRingSpot(p,type,a.x,a.y,a===k?3:2,a===k?15:7,S);if(s)return s;}
+  return aiFarSpot(p,type,S,120);}
+ return aiRingSpot(p,type,k.x,k.y,3,15,S)||aiFarSpot(p,type,S,200);}
 function attackMove(u,x,y){u.state='move';u.target=null;u.amove={x,y};u.leash=false;u.guard=null;goTo(u,x+rr(-1.5,1.5),y+rr(-1.5,1.5));u.amove={x:u.goal.x,y:u.goal.y};}
 function nearestBldOf(pid,x,y){let best=null,bd=1e9;for(const b of blds){if(b.dead||b.owner!==pid)continue;const d=dist(x,y,b.x,b.y)+(BLD[b.type].wall?6:0);if(d<bd){bd=d;best=b;}}return best;}
 // ---- AI and the ages
@@ -759,24 +810,32 @@ function aiThink(p){
   const w=aiGatherW(p,P,t,def,defSum);
   let br='wood',bs=-1e9;for(const r of RES){const s=w[r]*peas.length-cnt[r];if(s>bs){bs=s;br=r;}}
   if(br==='food'){const f=findFarm(p.id,u.x,u.y);if(f&&assignFarm(u,f)){cnt.food++;continue;}A.needFarm=true;br='wood';}
-  const drop=nearestDrop(p.id,br,k.x,k.y)||k;const n=nearestRes(RT[br],drop.x,drop.y,30*mapF()|0,true,u)||nearestRes(RT.wood,k.x,k.y,30*mapF()|0,true,u);
+  const n=aiGatherSpot(p,br,u)||nearestRes(RT.wood,k.x,k.y,30*mapF()|0,true,u);
   if(n&&assignGather(u,n[0],n[1]))cnt[br]++;}
  // rebalance: move workers from a hoarded resource to a starved one
  if(Math.floor(t)%4===0){const need=RES.filter(r=>p.res[r]<150&&P.gather[r]>0.05).sort((a,b)=>p.res[a]-p.res[b]);const rich=RES.filter(r=>p.res[r]>400&&cnt[r]>1).sort((a,b)=>p.res[b]-p.res[a]);
   if(need.length&&rich.length){const nr=need[0],rr2=rich[0];const g=peas.find(u=>u.state!=='build'&&u.job&&(u.job.farm?'food':u.job.rt)===rr2);
-   if(g){if(nr==='food'){const f=findFarm(p.id,k.x,k.y);if(f){g.job=null;assignFarm(g,f);}else A.needFarm=true;}else{const drop=nearestDrop(p.id,nr,k.x,k.y)||k;const n=nearestRes(RT[nr],drop.x,drop.y,30*mapF()|0,true,g);if(n){assignGather(g,n[0],n[1]);}}}}}
+   if(g){if(nr==='food'){const f=findFarm(p.id,k.x,k.y);if(f){g.job=null;assignFarm(g,f);}else A.needFarm=true;}else{const n=aiGatherSpot(p,nr,g);if(n){assignGather(g,n[0],n[1]);}}}}}
  // saving for an age building: every 3 s move one worker from a resource that is already covered (or least short) to the most-needed one
  if(defSum>0&&Math.floor(t)%3===0){const tot=Math.max(1,peas.length);let nr=null,ns=-1e9;for(const r of RES){if(def[r]<=0)continue;const s=def[r]/defSum-cnt[r]/tot;if(s>ns){ns=s;nr=r;}}
   let rr2=null,rs=-1e9;for(const r of RES){if(r===nr||cnt[r]<2)continue;const s=cnt[r]/tot-def[r]/defSum-(r==='food'&&p.res.food<300?1:0);if(s>rs){rs=s;rr2=r;}}
   if(nr&&rr2&&ns>.05&&rs>0){const g=peas.find(u=>u.state!=='build'&&u.job&&(u.job.farm?'food':u.job.rt)===rr2);
-   if(g){if(nr==='food'){const f=findFarm(p.id,k.x,k.y);if(f){g.job=null;assignFarm(g,f);}else A.needFarm=true;}else{const drop=nearestDrop(p.id,nr,k.x,k.y)||k;const n=nearestRes(RT[nr],drop.x,drop.y,40*mapF()|0,true,g);if(n)assignGather(g,n[0],n[1]);}}}}
+   if(g){if(nr==='food'){const f=findFarm(p.id,k.x,k.y);if(f){g.job=null;assignFarm(g,f);}else A.needFarm=true;}else{const n=aiGatherSpot(p,nr,g);if(n)assignGather(g,n[0],n[1]);}}}}
  // rebalance: shift one wood gatherer to food if starving
  if(t%10<1&&p.res.food<60&&cnt.food<peas.length*.25){const f=findFarm(p.id,k.x,k.y);const g=peas.find(u=>u.state!=='build'&&u.job&&u.job.rt==='wood');if(f&&g)assignFarm(g,f);}
  // --- buildings
  let under=myB.filter(b=>!b.built&&!BLD[b.type].wall).length;const want=[];
  if(p.popCap<POP_MAX&&p.pop>=p.popCap-4&&!myB.some(b=>b.type==='house'&&!b.built))want.push('house');
- const farms=count('farm');if((A.needFarm||farms*2<Math.ceil(peas.length*P.gather.food))&&farms<14)want.push('farm');
+ const farms=count('farm');if((A.needFarm||farms*2<Math.ceil(peas.length*P.gather.food))&&farms<14+6*count('fortress'))want.push('farm');
  if(count('lumber')<1&&t>12)want.push('lumber');
+ // expansion (v1.4.4; cheap, so ahead of the big buildings): a new drop-off outpost when the patches around the existing ones run thin, plus steady growth over time
+ if(t-(A.covT||-99)>10){A.covT=t;A.need={};let dry=0;for(const r of ['wood','stone','gold']){A.need[r]=!covered(p,r);for(const [b,n] of aiDrops(p,r))if(b.type===DROP_OF[r]&&n<COV_MIN[r])dry++;}A.dry=Math.min(6,dry);
+  A.opN=aiOutposts(p).length;A.opBare=aiOutposts(p).filter(b=>b.type!=='fortress'&&!myB.some(q=>q.type==='tower'&&dist(q.x,q.y,b.x,b.y)<8)).length;}
+ const ef=expF(p),NE=A.need||{};
+ if(count('lumber')<Math.min(8,1+Math.floor((t+190)*ef/450))||(NE.wood&&t>120&&count('lumber')<10))want.push('lumber');
+ if(t>420&&(count('mine')<Math.min(6,2+Math.floor((t-420)*ef/540))||(NE.gold&&count('mine')<8)))want.push('mine');
+ if(t>300&&(count('quarry')<Math.min(5,1+Math.floor(t*ef/660))||(NE.stone&&count('quarry')<6)))want.push('quarry');
+
  if(count('mine')<1&&t>70)want.push('mine');
  if(count('quarry')<1&&t>(P.walls?60:130))want.push('quarry');
  if(count('barracks')<1&&t>P.barracksT*TM)want.push('barracks');
@@ -788,11 +847,13 @@ function aiThink(p){
  if(count('fortress')<1&&t>P.fortressT*TM)want.push('fortress');
  if(count('lumber')<2&&t>260)want.push('lumber');
  if(count('mine')<2&&t>420)want.push('mine');
+ if(t>480&&A.opBare>0&&count('tower')<P.towers+4)want.push('tower');
+ if(count('fortress')===1&&P.fortressT<9999&&t>Math.max(1200,P.fortressT*TM+600)&&(A.opN||0)>=2)want.push('fortress');
  if((p.age||0)>=1&&count('workshop')<1)want.push('workshop');
  if(save){if(count('market')<1)want.push('market');if(count('mine')<3&&def.gold>0)want.push('mine');if(count('quarry')<2&&def.stone>0)want.push('quarry');}
  if(goal&&goal.place&&!myB.some(b=>b.type===goal.type))want.unshift(goal.type);
  A.saveFor=null;A.needFarm=false;
- for(const ty of want){if(under>=2&&ty!=='house'&&!BLD[ty].ageUp)break;
+ for(const ty of [...new Set(want)]){if(under>=2&&ty!=='house'&&!BLD[ty].ageUp)break;
   if(BLD[ty].ageUp?afford(p,BLD[ty].cost):affordRes(p,BLD[ty].cost,null)){const s=aiFindSpot(p,ty);if(s&&placeBuilding(ty,s[0],s[1],p.id)){under++;if(BLD[ty].ageUp)A.bank=null;}}
   else{A.saveFor=BLD[ty].cost;break;}}
  if(A.ring&&t>150&&p.res.stone>60&&!(def&&def.stone>0)&&myB.filter(b=>!b.built&&BLD[b.type].wall).length<6){let placed=0;for(let tries=0;tries<A.ring.length&&placed<4;tries++){const c=A.ring[A.ringIdx%A.ring.length];A.ringIdx++;const i=c.y*MAP+c.x;if(bgrid[i]||tiles[i]||resT[i])continue;const ty=c.g?'gate':'wall';if(!affordRes(p,BLD[ty].cost,null))break;if(placeBuilding(ty,c.x,c.y,p.id))placed++;}}
@@ -1476,7 +1537,7 @@ function drawHelp(){uiBtns=[];tip=null;const [x,y]=overlayPanel(Math.min(W-40,90
  ['Army','Keep trains peasants; Barracks: spearmen & archers; Stable: knights; Workshop: catapults (Middle Ages: also trebuchets and siege rams). Q/E/R/T train from the selected building (when the build menu is closed). Right-click with a building selected sets its rally point. Houses raise population (+8 each; Keep and Fortress +10) up to the cap of 200.'],
  ['Ages','A finished University (5,000 of every resource) brings the Middle Ages: trebuchets (range 12, heavy siege) and siege rams (x5 vs buildings, tough, weak vs units) at the Workshop; archers +3 range; spearmen and knights +20% health. A finished Research Lab (10,000 of each, needs the Middle Ages) brings the Modern Age: archers, knights, spearmen and trebuchets become Machine Gunners, Tanks (fire shells 8 tiles, see 10), Infantry (shoot 3 tiles) and Howitzers with +20% speed, +25% health, +50% damage. Existing units upgrade too. Unit costs double with each age. Your age is kept even if the building is later destroyed.'],
  ['Nukes','Select a finished Research Lab: Q (or the button) builds a nuclear bomb for 10,000 of every resource (150 s). K, then click anywhere on the map or minimap (fog ignored) and confirm: after a short flight it destroys every unit and building within 30 tiles, yours included. A Keep caught in the blast means defeat. Lab also launches a spy satellite (3,000 of each, 60 s): the whole map is revealed to you for the rest of the game.'],
- ['Counters','Spearmen beat knights. Knights crush archers & catapults. Archers shred infantry. Catapults demolish walls and buildings. Towers, Keeps and Fortresses shoot arrows.'],
+ ['Counters','Spearmen beat knights. Knights crush archers & catapults. Archers shred infantry. Catapults demolish walls and buildings; spearmen/Infantry (x0.25) and archers/Machine Gunners (x0.15) barely scratch them. Towers, Keeps and Fortresses shoot arrows.'],
  ['Rivals','Ravenmoor is aggressive and attacks early. Eldmark builds a big economy and strikes late with large armies. Stonehold walls itself in with towers. Rivals also fight each other.'],
  ['Chat','Multiplayer only (lobby and matches): Enter opens the chat box, Enter sends to everyone, Esc cancels. While typing, game hotkeys are off. Mouse wheel over the open chat (or PgUp/PgDn) scrolls the history; recent messages fade after 10 s. There are no teams or alliances, so all chat goes to every player.'],
  ['Other','P / Esc pauses (restart or surrender from the pause menu). F toggles fog of war. H toggles this help. F3 shows the network status in multiplayer (ping, last server update, reconnects). M mutes sound; volume sliders are under the Sound button (top bar) and in the pause menu.']];

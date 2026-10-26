@@ -443,9 +443,12 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
   kingdom enters the Middle Ages, and stays there even if the University is destroyed later. The Siege Workshop can now
   train **trebuchets** (range 12, min range 3.5, heavy splash vs buildings, slow) and **siege rams** (tough, 5× damage
   to buildings, nearly harmless to units). Archers get +3 range. Spearmen and knights get +20% health (existing ones too).
+- **Foot soldiers vs buildings (v1.4.4).** Spearmen and Modern Infantry deal x0.25 damage to buildings (was x0.5);
+  archers and Machine Gunners stay at x0.15. Nominal damage per second against a finished building: spearman 1.8 (was 3.6),
+  Infantry 2.7 (was 5.5), archer 0.7, Machine Gunner 1.05 (sites under construction take x1.5). Bring siege, knights or Tanks.
 - **Middle Ages → Modern Age.** Build a **Research Lab** (B, R; 10,000 of every resource, 140 s, locked until the
   Middle Ages). Archers become **Machine Gunners**, knights **Tanks** (since v1.4.2 they fire shells from 8 tiles and see 10;
-  still x1.6 vs ranged and x1.5 vs siege), spearmen **Infantry** (shoot from 3 tiles), and
+  still x1.6 vs ranged and x1.5 vs siege), spearmen **Infantry** (shoot from 3 tiles; since v1.4.4 still only x0.25 vs buildings), and
   trebuchets **Howitzers**. All four get +20% speed, +25% health and +50% damage, stacked on the Middle Ages bonuses.
 - **Unit costs double with each age** after the age a unit first appears in (peasant 50 → 100 → 200 food). Units already
   queued keep the price paid, and cancelling refunds that price.
@@ -479,6 +482,28 @@ Pathfinding uses weighted A* with a per-tick expansion budget, so Large stays we
   In the Modern Age its spearmen, archers and knights come out as Infantry, Machine Gunners and Tanks.
 - **Satellite.** Normal and Hard AIs in the Modern Age launch a satellite once they have spare resources.
 - **No nukes.** The AI never builds or launches a nuclear bomb.
+
+## AI expansion (v1.4.4)
+
+AI kingdoms used to stay inside about 15 tiles of their Keep for the whole game. Now they keep spreading outward:
+
+- **Reach grows.** The area an AI builds in starts at 14 tiles and grows with game time, population and patches it has
+  used up. It is capped at about a quarter of the map on small maps and a third on medium and large maps. Hard AIs
+  expand faster than Normal, and Normal faster than Easy. Builder kingdoms expand fastest, defensive ones slowest.
+- **Outposts.** New lumber camps, quarries and mines go on the richest untouched patch within reach, at least 8 tiles
+  from any of the AI's existing drop-offs of that kind. The AI wants more of them as the game goes on, and another one
+  as soon as the patches around its current drop-offs run thin. Peasants are sent to the drop-off with the most
+  resource left per worker, so outposts get staffed.
+- **Building around outposts.** Houses go next to the Keep, Fortresses or outposts, whichever has the fewest houses.
+  Farms go next to the Keep or a Fortress. Barracks, the University and other big buildings move further out once the
+  core is full.
+- **Defending outposts.** After 8 minutes the AI builds towers at outposts that have none, up to 4 more than usual.
+  Builder and defensive kingdoms add a second Fortress at their farthest outpost after 20 minutes or more.
+- **Walls.** Defensive kingdoms build a roomier wall ring (radius 12 on small maps, 15 otherwise, was 10) with a gate
+  every 6 tiles, and their town grows out past it.
+- **Safety.** The AI never builds within 14 tiles of an enemy building or within 24 tiles of an enemy Keep. Every new
+  building must also be clearly closer to its own Keep than to any enemy Keep. Attacks on outposts trigger the same
+  defense as attacks on the core.
 
 ## Controls
 | Action | Input |
