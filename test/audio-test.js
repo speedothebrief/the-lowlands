@@ -45,6 +45,23 @@ const SHOTS=path.join(require('os').tmpdir(),'kom-shots');require('fs').mkdirSyn
   for(let i=0;i<30*360;i++){sim(STEP);if(sfxEv.length)AU.events(sfxEv.splice(0));}return seen;});
  const need=['chop','drop','queued','trained','place','built','hammer','err','die','hit','bow'];
  ok(need.every(k=>ev[k]),'sim produced sound events: '+Object.entries(ev).map(([k,v])=>k+'×'+v).join(' '));
+ // ---- (v1.4.6) each age has its own music theme, crossfaded on advancing
+ const lv=q=>q.evaluate(()=>{AU.tick();return {th:AU.theme,want:AU.themeFor(),lv:AU.levels(),trim:AU.TRIM};});
+ let L0=await lv(p);ok(L0.th===0&&L0.lv[0]>.95&&L0.lv[1]<.01&&L0.lv[2]<.01,'Early Age plays the original theme alone ('+JSON.stringify(L0.lv.map(v=>+v.toFixed(2)))+')');
+ await p.evaluate(()=>{setAge(players[me],1);AU.tick();});await sleep(800);let L1=await lv(p);
+ ok(L1.th===1&&L1.lv[1]<.08&&L1.lv[0]>.85,'advancing to the Middle Ages picks theme 1 and waits for the fanfare before fading ('+JSON.stringify(L1.lv.map(v=>+v.toFixed(2)))+')');
+ await sleep(5200);L1=await lv(p);ok(L1.lv[1]>L1.trim[1]-.02&&L1.lv[0]<.01,'after the crossfade only the Middle Ages theme is audible ('+JSON.stringify(L1.lv.map(v=>+v.toFixed(2)))+')');
+ await p.evaluate(()=>{const o=players.find(q=>q.id!==me);setAge(o,2);AU.tick();});await sleep(300);
+ ok((await lv(p)).th===1,"another kingdom advancing does not change my music");
+ await p.evaluate(()=>{setAge(players[me],2);AU.tick();});await sleep(5700);let L2=await lv(p);
+ ok(L2.th===2&&L2.lv[2]>L2.trim[2]-.02&&L2.lv[1]<.01&&L2.lv[0]<.01,'advancing to the Modern Age crossfades to theme 2 ('+JSON.stringify(L2.lv.map(v=>+v.toFixed(2)))+')');
+ ok(await p.evaluate(()=>{const s0=state;state='menu';const k=AU.themeFor();state=s0;return k===0;}),'menu / lobby uses the Early theme');
+ {const q=await page('mid');await q.goto(FILE);await sleep(400);await q.evaluate(()=>{newGame();showHelp=false;setAge(players[me],1);});
+  ok(await q.evaluate(()=>AU.ac===null),'(mid-game page, audio not started yet)');
+  await q.mouse.click(640,400);await sleep(500);const Q=await lv(q);
+  ok(Q.th===1&&Q.lv[1]>Q.trim[1]-.02&&Q.lv[0]<.01,'audio starting mid-game (reload / reconnect) plays the current age theme at once ('+JSON.stringify(Q.lv.map(v=>+v.toFixed(2)))+')');await q.close();}
+ {const R=await p.evaluate(async()=>{const out=[];for(const k of [0,1,2]){const [l]=await AU.render(k,12,22050);let s=0;for(let i=22050*2;i<l.length;i++)s+=l[i]*l[i];out.push(Math.sqrt(s/(l.length-22050*2)));}return out;});
+  const db=R.map(r=>20*Math.log10(r||1e-9));ok(R.every(r=>r>1e-4)&&Math.max(...db)-Math.min(...db)<3,'all three themes render (offline) at similar loudness (RMS dB '+db.map(d=>d.toFixed(1)).join(' / ')+')');}
  // ---- mute + persistence
  await p.keyboard.press('m');const m1=await p.evaluate(()=>[AU.S.muted,JSON.parse(localStorage.getItem('kom_audio')).muted]);
  await p.evaluate(()=>AU.set('music',0.33));await p.reload();await sleep(400);
@@ -56,7 +73,7 @@ const SHOTS=path.join(require('os').tmpdir(),'kom-shots');require('fs').mkdirSyn
  await p.keyboard.press('m');
  await p.screenshot({path:path.join(SHOTS,'audio-menu.png')});
  // ---- LAN: local player's own kingdom drives battle music
- const srv=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT:'8131',LOWLANDS_NO_UPDATE:'1'}});await sleep(900);
+ const srv=spawn(process.execPath,[path.join(__dirname,'..','server.js')],{env:{...process.env,PORT:'8131',LOWLANDS_NO_UPDATE:'1',LOWLANDS_TEST_AGEUP:'3:2:5'}});await sleep(900);
  const a=await page('A'),b=await page('B');await a.goto('http://127.0.0.1:8131/');await b.goto('http://127.0.0.1:8131/');await sleep(900);
  for(const q of [a,b]){await q.bringToFront();await q.mouse.click(5,5);}
  await a.evaluate(()=>{openServerLobby();netSend({t:'slot',slot:0});});await b.evaluate(()=>{openServerLobby();netSend({t:'slot',slot:3});});await sleep(400);
@@ -69,6 +86,9 @@ const SHOTS=path.join(require('os').tmpdir(),'kom-shots');require('fs').mkdirSyn
  ok(bOn,"LAN: Bob's battle music starts when Alice's troops attack his keep (it shoots back)");
  ok(aOn,"LAN: Alice's battle music starts when Bob's keep shoots her units");
  ok(await a.evaluate(()=>mode==='net'&&AU.stats.played>0),'LAN client plays SFX from snapshot events');
+ {for(let i=0;i<20&&!(await b.evaluate(()=>players[3].age===2));i++)await sleep(500);await sleep(5800);const B=await lv(b),A2=await lv(a);
+  ok(B.th===2&&B.lv[2]>B.trim[2]-.02&&B.lv[0]<.01,"LAN: Bob's kingdom reaches the Modern Age (server) and his client crossfades to theme 2");
+  ok(A2.th===0&&A2.lv[0]>.95&&A2.lv[2]<.01,"LAN: Alice (still Early Age) keeps her own theme");}
  await b.screenshot({path:path.join(SHOTS,'audio-lan.png')});
  srv.kill();
  ok(errs.length===0,'no page errors'+(errs.length?':\n'+errs.join('\n'):''));

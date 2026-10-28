@@ -1,7 +1,7 @@
 'use strict';
 // ===== game room (lobby + authoritative loop) used by server.js =====
 // API: the simulation instance. opt.log(msg); test hooks: opt.speed (>1 = game runs faster than real time, i.e. like a
-// proportionally slower CPU), opt.autoplay (AI plays the human kingdoms).
+// proportionally slower CPU), opt.autoplay (AI plays the human kingdoms), opt.ageUp ('slot:age:seconds' advances that kingdom's age, audio test).
 // join(sendStr, info, io) returns {cid, msg(obj), leave()}; io.buffered() = bytes still queued on that socket,
 // io.close() = drop the socket.
 //
@@ -64,6 +64,7 @@ function createRoom(API,opt){opt=opt||{};const log=opt.log||(()=>{});
   const seed=Math.floor(Math.random()*1e9);API.setupGame(seed,slots,cfg.diff,cfg.fog,cfg.size);
   if(opt.autoplay){const P=API.get().players;slots.forEach((s,i)=>{if(s.human){API.makeAI(i);P[i].isHuman=true;}});}
   if(opt.fillPop)fillPop();
+  if(opt.ageUp){const [sl,ag,sec]=String(opt.ageUp).split(':').map(Number);const g0=seed;setTimeout(()=>{const P=API.get().players[sl];if(inGame&&gameMeta&&gameMeta.seed===g0&&P&&API.setAge)API.setAge(P,ag);},sec*1000);}   // test hook: slot:age:seconds
   gameMeta={seed,diff:cfg.diff,fog:cfg.fog};inGame=true;uHist.clear();cmdQ=[];stepN=0;acc=0;lastT=Date.now();lastSnapT=0;departed.clear();
   for(const c of clients.values()){c.pid=c.slot;c.pend=null;c.ackN=c.lastSent=c.d0=seq;if(c.slot>=0)send(c,initMsg(c));}
   announced=new Set();sysChat('The game has started: '+slots.map((s,i)=>`${kname(i)} (${s.human?s.name:'AI'})`).join(', ')+'.');

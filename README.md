@@ -506,6 +506,16 @@ AI kingdoms used to stay inside about 15 tiles of their Keep for the whole game.
   defense as attacks on the core.
 
 
+## Music for every age (v1.4.6)
+
+The soundtrack is still fully procedural WebAudio (no audio files; the game stays one `index.html`). Each age now has its own theme:
+
+- **Early Age**: the original slow ambient pads, arpeggio and bells (72 bpm).
+- **Middle Ages**: a D Dorian estampie in 6/8: a bagpipe-like drone, a plucked lute playing broken chords, a recorder-like melody with breath and vibrato, and tabor drum hits with rolls into each phrase.
+- **Modern Age**: an A-minor march at 116 bpm: kick and snare (ghost notes and rolls), hats, brass-like chord swells, a staccato synth-string ostinato, sub bass, timpani at phrase starts and horn calls.
+
+Music follows **your own** kingdom's age (in LAN games each player hears their own age). When you advance, the new theme fades in over 3.5 s starting with the fanfare chord of the age-up sound, while the old theme fades out. Starting, reloading or reconnecting mid-game plays the current age's theme straight away. Menus and the lobby use the Early theme. All themes go through the Music volume slider and the mute key; their loudness is matched (within about 0.5 LU). The battle layer works on top of any theme.
+
 ## Walls hold (v1.4.5)
 
 Units, knights in particular, could walk straight through walls. A unit followed the route it planned when it was
