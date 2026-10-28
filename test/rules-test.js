@@ -6,7 +6,7 @@ const fs=require('fs'),vm=require('vm'),path=require('path');
 const html=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
 const src=html.slice(html.indexOf('/*SIM-BEGIN*/'),html.indexOf('/*SIM-END*/'));
 const c=vm.createContext({console});
-vm.runInContext(src+';globalThis.API={POP_MAX,fortBldTarget,updateVisFor,setupGame,sim,applyCmd,nearestRes,spawnUnit,spawnBld,killEnt,makeSnap,canPlace,repairCost,RT,BLD,UNITS,STEP,RES_AMT,US,AGES,NUKE,SAT,AGE_UNITS,get:()=>({units,blds,players,claim,resT,resA,projs,MAP,STARTS,time,nukeFx})};',c);
+vm.runInContext(src+';globalThis.API={passable,stepOK,POP_MAX,fortBldTarget,updateVisFor,setupGame,sim,applyCmd,nearestRes,spawnUnit,spawnBld,killEnt,makeSnap,canPlace,repairCost,RT,BLD,UNITS,STEP,RES_AMT,US,AGES,NUKE,SAT,AGE_UNITS,get:()=>({units,blds,players,claim,resT,resA,projs,MAP,STARTS,time,nukeFx})};',c);
 const A=c.API;const close2=(a,b)=>Math.abs(a-b)<1e-9;let fails=0;const ok=(v,m)=>{console.log((v?'PASS ':'FAIL ')+m);if(!v)fails++;};
 const run=sec=>{for(let s=0;s<Math.round(sec*30);s++)A.sim(A.STEP);};
 const my=(pid,ty)=>A.get().units.filter(u=>u.owner===pid&&(!ty||u.type===ty));
@@ -139,7 +139,7 @@ for(const [sz,seed,mins] of [['small',7,8],['medium',12,6]]){A.setupGame(seed,[{
  for(let s=0;s<30*60*mins;s++){A.sim(A.STEP);if(s%30)continue;const t=A.get().time;
   for(const v of A.get().units){if(v.dead||v.type!=='peasant'||v.owner===0||v.inG)continue;if(!['gather','return','farm','build'].includes(v.state)){last.delete(v.id);continue;}
    const key=[v.state,Math.round(v.x*4),Math.round(v.y*4),v.carry|0,v.bld?Math.round((v.bld.prog+v.bld.hp/v.bld.maxhp)*100):0,v.state==='farm'?Math.floor(t/3):0].join(',');
-   const L=last.get(v.id);if(!L||L.k!==key||v.working&&v.state==='gather')last.set(v.id,{k:key,t});else if(t-L.t>10){bad++;worst=Math.max(worst,t-L.t);L.t=t;if(process.env.DBG)console.log('  stuck',sz,t.toFixed(0),v.id,v.owner,v.state,v.x.toFixed(2),v.y.toFixed(2),'carry',v.carry,'job',JSON.stringify(v.job&&{tx:v.job.tx,ty:v.job.ty,rt:v.job.rt,farm:!!v.job.farm}),'bld',v.bld&&v.bld.type,v.bld&&v.bld.built,v.bld&&v.bld.hp|0,'bc',v.bld&&v.bld.bc,'working',v.working,'moving',v.moving,'unstuck',v.unstuck,'drop',v.dropB&&v.dropB.type);}}}
+   const L=last.get(v.id);if(!L||L.k!==key||v.working&&v.state==='gather')last.set(v.id,{k:key,t});else if(t-L.t>10){bad++;worst=Math.max(worst,t-L.t);L.t=t;if(process.env.DBG)console.log('  stuck',sz,t.toFixed(0),v.id,v.owner,v.state,v.x.toFixed(2),v.y.toFixed(2),'carry',v.carry,'job',JSON.stringify(v.job&&{tx:v.job.tx,ty:v.job.ty,rt:v.job.rt,farm:!!v.job.farm}),'bld',v.bld&&v.bld.type,v.bld&&v.bld.built,v.bld&&v.bld.hp|0,'bc',v.bld&&v.bld.bc,'working',v.working,'moving',v.moving,'unstuck',v.unstuck,'drop',v.dropB&&v.dropB.type,'onPass',A.passable(Math.floor(v.x),Math.floor(v.y),v.owner),'path',JSON.stringify(v.path&&v.path.slice(0,3)),'pend',JSON.stringify(v.pend),'goal',JSON.stringify(v.goal),'blockT',v.blockT,'rawT',v.rawT,'stuckN',v.stuckN);}}}
  ok(bad===0,`soak ${sz} ${mins} min: no AI peasant stuck at its job for >10 s (${bad} events, worst ${worst.toFixed(0)} s)`);}
 console.log('--- garrison & Town Bell');
 A.setupGame(2024,[{human:true}],'normal',false);g=A.get();{const K=g.players[0].keep;const P=g.players[0];
@@ -344,6 +344,53 @@ const finish=b=>{b.prog=1;run(.1);};
  const inf=A.spawnUnit('spearman',c,c,0),foe=A.spawnUnit('spearman',c+2.6,c,1);foe.hp=foe.maxhp=1e5;foe.state='hold';inf.state='hold';
  A.applyCmd(0,{t:'attack',ids:[inf.id],tid:foe.id});const fh=foe.hp,x0=inf.x;let shot=false;for(let s=0;s<90;s++){A.sim(A.STEP);if(g2.projs.some(p=>p.k==='bullet'&&p.owner===0))shot=true;}
  ok(shot&&foe.hp<fh&&Math.abs(inf.x-x0)<.3,`Infantry shoots bullets at a target 2.6 tiles away without closing in (${(fh-foe.hp).toFixed(0)} damage in 3 s)`);}
+console.log('--- walls stop every unit: knights, tanks, fast units, attack-move, own and enemy walls (v1.4.5)');
+{// a full-height wall line at x=cx (no way round); the unit starts 4.5 tiles west and is ordered 6.5 tiles east
+ const wallRun=(ut,age,wo,am,{late=false,speed=0,gate=false,farm=false}={})=>{A.setupGame(4242,[{human:true}],'normal',false,'medium');const G=A.get(),M=G.MAP,cx=M/2|0;
+  G.players[0].age=age;G.players[1].age=age;const g=A.get;
+  for(let y=0;y<M;y++)for(let x=cx-10;x<=cx+10;x++){const i=y*M+x;G.resT[i]=0;}
+  const tilesA=()=>A.get();const T=vm.runInContext('tiles',c),BG=()=>vm.runInContext('bgrid',c);for(let y=0;y<M;y++)for(let x=cx-10;x<=cx+10;x++)T[y*M+x]=0;
+  const ws=[];const wall=()=>{for(let y=0;y<M;y++){if(BG()[y*M+cx])continue;const ty=(gate&&y===cx)?'gate':(farm&&y>=cx-1&&y<=cx)?null:'wall';if(!ty)continue;const b=A.spawnBld(ty,cx,y,wo,true);b.hp=b.maxhp=1e7;ws.push(b);}
+   if(farm){const f=A.spawnBld('farm',cx-1,cx-1,wo,true);f.hp=f.maxhp=1e7;}};
+  if(!late)wall();const u=A.spawnUnit(ut,cx-4.5,cx+.5,0);u.state='idle';const st=A.US(ut,0),sp0=st.speed;if(speed)st.speed=speed;
+  A.applyCmd(0,{t:'move',am,ids:[u.id],x:cx+6.5,y:cx+.5});if(late){for(let i=0,n=speed?Math.floor(60/speed):15;i<n;i++)A.sim(A.STEP);wall();}   // the wall goes up once the unit is on its way, still short of the line
+  let enter=0,crossed=false,prev=null;for(let s2=0;s2<30*20;s2++){A.sim(A.STEP);const tx=Math.floor(u.x),ty=Math.floor(u.y),k=ty*M+tx;
+   if(prev!=null&&k!==prev&&!A.passable(tx,ty,0)&&A.passable(prev%M,(prev/M)|0,0))enter++;prev=k;if(u.x>cx+1)crossed=true;}
+  st.speed=sp0;return{enter,crossed,u};};
+ const kinds=[['knight',0,'knight'],['knight',2,'Tank'],['spearman',0,'spearman'],['spearman',2,'Infantry'],['archer',0,'archer'],['peasant',0,'peasant'],['catapult',0,'catapult'],['ram',1,'ram']];
+ let bad=[];for(const [ut,age,nm] of kinds)for(const wo of [0,1])for(const am of [false,true]){const r=wallRun(ut,age,wo,am);if(r.enter||r.crossed)bad.push(`${nm}/${wo?'enemy':'own'}/${am?'amove':'move'}`);}
+ ok(!bad.length,`no unit type walks into or across a closed wall line, own or enemy, move or attack-move (${kinds.length*4} runs${bad.length?'; FAILED: '+bad.join(', '):''})`);
+ bad=[];for(const [ut,age,nm] of [['knight',0,'knight'],['knight',2,'Tank'],['peasant',0,'peasant']])for(const wo of [0,1])for(const am of [false,true]){const r=wallRun(ut,age,wo,am,{late:true});if(r.enter||r.crossed)bad.push(`${nm}/${wo?'enemy':'own'}/${am?'amove':'move'}`);}
+ ok(!bad.length,`a wall built across a unit's planned route stops it (knight, Tank, peasant; was walked straight through)${bad.length?' FAILED: '+bad.join(', '):''}`);
+ bad=[];for(const v of [6,12,20])for(const late of [false,true]){const r=wallRun('knight',0,1,true,{speed:v,late});if(r.enter||r.crossed)bad.push(`${v}${late?' late':''}`);}
+ ok(!bad.length,`no tunnelling at high speed (knight at 6/12/20 tiles/s = up to 0.67 tiles per tick)${bad.length?' FAILED: '+bad.join(', '):''}`);
+ const W=vm.runInContext('MAP',c);A.setupGame(4242,[{human:true}],'normal',false,'medium');const cx=vm.runInContext('MAP',c)/2|0;
+ ok(!A.stepOK(cx-.5,cx+.5,cx+1.5,cx+.5,0)||A.passable(cx,cx,0),'stepOK samples the whole step, not just its end');
+ const og=wallRun('knight',0,0,false,{gate:true}),eg=wallRun('knight',0,1,false,{gate:true});
+ ok(og.crossed&&og.enter===0&&!eg.crossed&&eg.enter===0,`gates: the owner's knight goes through its own gate (${og.crossed}), an enemy knight does not (${eg.crossed})`);
+ const fm=wallRun('knight',0,0,false,{farm:true});ok(fm.crossed&&fm.enter===0,`farms stay walkable: a knight crosses the wall line over a 2x2 farm gap (${fm.crossed})`);}
+{// AI-style assault: 8 enemy knights + 4 Tanks attack-move onto a Keep ringed by unbreakable walls (no gates)
+ A.setupGame(5151,[{human:true}],'hard',false,'medium');const G=A.get(),M=G.MAP,K=G.players[0].keep;G.players[1].age=2;const kx=Math.floor(K.x),ky=Math.floor(K.y),R=6;
+ for(let y=ky-R;y<=ky+R;y++)for(let x=kx-R;x<=kx+R;x++){if(Math.max(Math.abs(x-kx),Math.abs(y-ky))!==R||x<0||y<0||x>=M||y>=M)continue;const i=y*M+x;if(vm.runInContext('bgrid',c)[i])continue;vm.runInContext('tiles',c)[i]=0;G.resT[i]=0;const b=A.spawnBld('wall',x,y,0,true);b.hp=b.maxhp=1e7;}
+ for(const u of G.units)if(u.owner===0&&Math.max(Math.abs(u.x-kx),Math.abs(u.y-ky))>R-1)u.dead=true;
+ const foes=[];for(let i=0;i<12;i++){G.players[1].age=i<8?0:2;foes.push(A.spawnUnit('knight',kx+R+4+(i%4)*.7,ky-2+(i/4|0)*.9,1));}G.players[1].age=2;
+ A.applyCmd(1,{t:'move',am:true,ids:foes.map(u=>u.id),x:K.x,y:K.y});const prev=new Map();let enter=0,inside=0;
+ for(let s2=0;s2<30*40;s2++){A.sim(A.STEP);for(const u of foes){if(u.dead)continue;const tx=Math.floor(u.x),ty=Math.floor(u.y),k=ty*M+tx,p=prev.get(u.id);
+   if(p!=null&&p!==k&&!A.passable(tx,ty,1)&&A.passable(p%M,(p/M)|0,1))enter++;prev.set(u.id,k);if(Math.max(Math.abs(tx-kx),Math.abs(ty-ky))<R)inside++;}}
+ ok(enter===0&&inside===0,`12 enemy knights/Tanks attack-moving on a walled Keep never enter or cross the wall ring (entries ${enter}, ticks inside ${inside})`);
+ const onWall=foes.filter(u=>!u.dead&&u.target&&u.target.type==='wall').length;ok(onWall>=6,`... and instead of milling about they attack the wall in their way (${onWall}/12 targeting a wall)`);}
+{// a peasant sealed into a 1-tile pocket by trees and its own building squeezes out (soft blockers only), but never through walls
+ A.setupGame(4242,[{human:true}],'normal',false,'medium');const G=A.get(),M=G.MAP,cx=M/2|0;const T=vm.runInContext('tiles',c);
+ for(let y=cx-6;y<=cx+6;y++)for(let x=cx-6;x<=cx+12;x++){T[y*M+x]=0;G.resT[y*M+x]=0;}
+ for(let y=cx-1;y<=cx+1;y++)for(let x=cx-1;x<=cx+1;x++)if((x!==cx||y!==cx)&&!(x===cx+1&&y>=cx)){G.resT[y*M+x]=A.RT.wood;G.resA[y*M+x]=100;}
+ const h=A.spawnBld('house',cx+1,cx,0,true);vm.runInContext('passGen++',c);
+ const u=A.spawnUnit('peasant',cx+.5,cx+.5,0);u.state='idle';A.applyCmd(0,{t:'move',ids:[u.id],x:cx-5.5,y:cx+.5});run(6);
+ ok(u.x<cx-1,`a peasant boxed in by trees and its own new house walks out (x ${(u.x-cx).toFixed(1)} rel.)`);
+ const pocket2=()=>{A.setupGame(4242,[{human:true}],'normal',false,'medium');const G=A.get(),M=G.MAP,cx=M/2|0;const T=vm.runInContext('tiles',c);
+  for(let y=cx-6;y<=cx+6;y++)for(let x=cx-6;x<=cx+6;x++){T[y*M+x]=0;G.resT[y*M+x]=0;}
+  for(let y=cx-1;y<=cx+1;y++)for(let x=cx-1;x<=cx+1;x++)if(x!==cx||y!==cx)A.spawnBld('wall',x,y,1,true);
+  const u=A.spawnUnit('knight',cx+.5,cx+.5,0);u.state='idle';A.applyCmd(0,{t:'move',ids:[u.id],x:cx-5.5,y:cx+.5});run(6);return Math.floor(u.x)===cx&&Math.floor(u.y)===cx;};
+ ok(pocket2(),'a knight boxed in by enemy walls stays inside (no squeezing through walls)');}
 console.log('--- AI expansion: kingdoms keep spreading outward (v1.4.4)');
 {vm.runInContext('globalThis.__rnd=Math.random;{let s='+(+process.env.EXPSEED||1)+';Math.random=()=>((s=(Math.imul(s,1664525)+1013904223)>>>0)/4294967296);}',c);   // seeded: reproducible AI choices
  A.setupGame(7919,[{human:false,name:'T'}],'normal',true,'medium');const g=A.get();const DROPS=['lumber','quarry','mine','fortress'];const rows={};

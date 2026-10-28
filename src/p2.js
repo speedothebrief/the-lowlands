@@ -105,6 +105,10 @@ function updateUnit(u,dt){
    if(!hasPath(u)){const ax=u.x+(u.x-t.x)/(d||1)*2.5,ay=u.y+(u.y-t.y)/(d||1)*2.5;goTo(u,ax,ay);} if(moveAlong(u,dt))u.path=null;}
   else{
    if(u.leash&&u.guard&&dist(u.x,u.y,u.guard.x,u.guard.y)>11){u.target=null;u.leash=false;u.state='move';goTo(u,u.guard.x,u.guard.y);return;}
+   // (v1.4.5) target out of reach (behind a wall, across water): no more walking through. Attack the enemy wall/gate/building
+   // in the way if there is one next to us, otherwise retry once a second and give the target up after a few tries.
+   if(!hasPath(u)&&u.noPath){if(time-u.repathT<1)return;const w=blockerNear(u,t);if(w){u.target=w;u.noPath=false;return;}
+    if((u.npN=(u.npN||0)+1)>=4){u.npN=0;u.noPath=false;u.target=null;resumeAfterFight(u);return;}}
    if(!hasPath(u)||time-u.repathT>1.1){const tp=targetPoint(u,t);goTo(u,tp.x,tp.y);}
    moveAlong(u,dt);
    if(u.owner!==0||u.amove){u.chaseT=(u.chaseT||0)+dt;if(u.chaseT>4){u.chaseT=0;const e=findEnemy(u,D.sight);if(e&&e!==t&&distTo(u,e)<d-1)u.target=e;}}
@@ -120,6 +124,9 @@ function updateUnit(u,dt){
  if(u.moving){u.stuckT+=dt;if(u.stuckT>1.5){if(dist(u.x,u.y,u.lx,u.ly)<0.3&&u.goal){u.stuckN=(u.stuckN||0)+1;u.path=[];u.pend={x:u.goal.x,y:u.goal.y};}else u.stuckN=0;u.stuckT=0;u.lx=u.x;u.ly=u.y;}}
  if(u.type==='peasant')peasantWatchdog(u);
 }
+// the nearest enemy building within 2.5 tiles of a unit whose way to its target is blocked (walls and gates first)
+function blockerNear(u,t){let best=null,bd=1e9;for(const b of blds){if(b.dead||b===t||!isEnemy(u.owner,b.owner)||b.type==='farm')continue;const d=distTo(u,b);if(d>2.5)continue;
+  const s=d+(t?dist(b.x,b.y,t.x,t.y)*0.05:0)-(b.type==='wall'||b.type==='gate'?1:0);if(s<bd){bd=s;best=b;}}return best;}
 function nearestDrop(owner,rt,x,y,u){let best=null,bd=1e9;for(const b of blds){if(b.dead||b.owner!==owner||!b.built)continue;if(u&&u.badDrop===b.id&&time-u.badDropT<40)continue;const D=BLD[b.type];if(!D.drop||!D.drop.includes(rt))continue;const d=dist(x,y,b.x,b.y);if(d<bd){bd=d;best=b;}}return best;}
 function startReturn(u){const b=nearestDrop(u.owner,u.carryT,u.x,u.y,u);if(!b){u.state='idle';return;}u.state='return';u.dropB=b;u.rfail=0;const tp=approachPoint(u,b,0);goTo(u,tp.x,tp.y);}
 // a free tile around a building (8-neighbourhood ring) nearest to the unit; 'skip' cycles to the next candidate after failures
@@ -303,7 +310,10 @@ function buildUpdate(u,dt){const b=u.bld;if(!needsWork(b)||b.owner!==u.owner){fi
   // AI repair crews that can't pay for the repair would stand there forever: release them (the site is avoided for 30 s)
   if(b.built&&players[u.owner].isAI&&time-(b.noFundsT||-99)<0.5&&time-(b.repT||-99)>3){u.badBld=b;u.badBldT=time;u.working=false;finishBuild(u);return;}
   if(time-(u.hT||-9)>.85){u.hT=time;u.swingT=time;if(Math.random()<.5)sfx('hammer',b.x,b.y,u.owner,b.built?1:0);}return;}
- if(!hasPath(u)||time-u.repathT>3){const tp=approachPoint(u,b,u.bfail);goTo(u,tp.x,tp.y);}
+ if(!hasPath(u)||time-u.repathT>3){
+  // (v1.4.5) the last plan found no step towards the site (it is sealed off): count a failure and try another side, once a second
+  if(!hasPath(u)&&u.noPath){if(time-u.repathT<1)return;u.noPath=false;if(++u.bfail>4){if(!b.built)b.unreach=(b.unreach||0)+1;u.badBld=b;u.badBldT=time;finishBuild(u);return;}}
+  const tp=approachPoint(u,b,u.bfail);goTo(u,tp.x,tp.y);}
  if(moveAlong(u,dt)){u.path=null;if(distTo(u,b)>1.0){u.bfail++;if(u.bfail>4){if(!b.built)b.unreach=(b.unreach||0)+1;u.badBld=b;u.badBldT=time;finishBuild(u);}}}}
 // send builders: the given peasants (round-robin over the sites), or the nearest idle peasant
 function sendBuilders(pid,sites,peas){if(!sites.length)return 0;let n=0;

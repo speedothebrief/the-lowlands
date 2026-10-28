@@ -505,6 +505,24 @@ AI kingdoms used to stay inside about 15 tiles of their Keep for the whole game.
   building must also be clearly closer to its own Keep than to any enemy Keep. Attacks on outposts trigger the same
   defense as attacks on the core.
 
+
+## Walls hold (v1.4.5)
+
+Units, knights in particular, could walk straight through walls. A unit followed the route it planned when it was
+ordered, and nothing checked that route again while it walked. So a wall, gate or building put up across the route
+afterwards was walked through. The AI's wall rings, larger since v1.4.4, go up right where armies and peasants move.
+A smoothed route could also clip the corner of a blocked tile. A unit with no route at all walked straight at its goal.
+
+- **Every step is checked.** Each step is tested against the live map in 0.4-tile slices, so no speed can skip over a
+  wall. Squeezing diagonally between two blocked tiles is not allowed. A unit that grazes a corner slides along it for a
+  moment, then plans a new route. If it is blocked again soon after, it follows the exact tile-by-tile route.
+- **No route means no walking.** A unit with no way to its goal stops instead of walking through what is in the way.
+  Attackers whose target is walled off attack the enemy wall, gate or building next to them. If there is none, they
+  give up the target after a few tries. Builders whose site is sealed off give up on it after a few tries.
+- **Sealed pockets.** A unit trapped in a pocket of fewer than 16 open tiles, for example a peasant at a rock face when a
+  new mine goes up beside it, may squeeze out through trees, rocks and its own non-wall buildings. It never squeezes
+  through walls, gates, water or other players' buildings.
+- **Unchanged:** a gate lets only its owner through, and farms stay walkable.
 ## Controls
 | Action | Input |
 |---|---|

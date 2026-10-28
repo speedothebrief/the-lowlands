@@ -240,9 +240,19 @@ function computePath(u){const {x,y}=u.pend;u.pend=null;const tx=Math.floor(x),ty
  const p=hit||findPath(Math.floor(u.x),Math.floor(u.y),tx,ty,u.owner);if(!p){u.path=[];return;}
  if(!hit&&far&&p.length>=12){const last=p[p.length-1];let E=pathCache.get(u.owner);if(!E)pathCache.set(u.owner,E=[]);
   E.push({sx:u.x,sy:u.y,gx:tx,gy:ty,p,t:time,full:Math.floor(last[0])===tx&&Math.floor(last[1])===ty});if(E.length>24)E.shift();}
- const sp=u.stuckN>=2?p.slice():smooth(u.x,u.y,p,u.owner);
- if(passable(tx,ty,u.owner)){if(sp.length&&Math.floor(sp[sp.length-1][0])===tx&&Math.floor(sp[sp.length-1][1])===ty)sp[sp.length-1]=[x,y];else if(!sp.length)sp.push([x,y]);}
+ const sp=(u.stuckN>=2||u.rawT>time)?p.slice():smooth(u.x,u.y,p,u.owner);
+ if(passable(tx,ty,u.owner)){if(sp.length&&Math.floor(sp[sp.length-1][0])===tx&&Math.floor(sp[sp.length-1][1])===ty)sp[sp.length-1]=[x,y];else if(!sp.length&&lineClear(u.x,u.y,x,y,u.owner))sp.push([x,y]);}   // (v1.4.5) an empty partial path no longer becomes a straight line to an unreachable goal
+ // (v1.4.5) a unit sealed into a tiny pocket (e.g. a new mine placed beside a peasant at a rock face) may squeeze out
+ // through soft blockers -- resources and its own non-wall buildings -- straight towards its goal. Never through walls,
+ // gates, water or anyone else's buildings.
+ if(!sp.length&&!(Math.floor(u.x)===tx&&Math.floor(u.y)===ty)&&pocket(Math.floor(u.x),Math.floor(u.y),u.owner)&&stepOK(u.x,u.y,x,y,u.owner,true)){u.trapT=time+3;sp.push([x,y]);}
+ u.noPath=!sp.length&&!(Math.floor(u.x)===tx&&Math.floor(u.y)===ty);if(sp.length)u.npN=0;   // no step possible towards this goal
  u.path=sp;}
+// is the tile in a closed pocket of fewer than 16 passable tiles?
+function pocket(sx,sy,o){const PG=passGrid(o);if(sx<0||sy<0||sx>=MAP||sy>=MAP||!PG[sy*MAP+sx])return false;const seen=new Set([sy*MAP+sx]),q=[sy*MAP+sx];
+ while(q.length){const i=q.pop(),x=i%MAP,y=(i/MAP)|0;for(let d=0;d<4;d++){const nx=x+DX[d],ny=y+DY[d];if(nx<0||ny<0||nx>=MAP||ny>=MAP)continue;const j=ny*MAP+nx;if(!PG[j]||seen.has(j))continue;seen.add(j);if(seen.size>=16)return false;q.push(j);}}
+ return true;}
+const softBlk=(i,o)=>{if(tiles[i])return false;if(resT[i])return true;const b=bgrid[i];return !!b&&b.owner===o&&b.type!=='wall'&&b.type!=='gate';};
 const hasPath=u=>!!(u.pend||(u.path&&u.path.length));
 function moveAlong(u,dt){
  if(u.pend){if(pathBudget>0&&pathExp>0){pathBudget--;u.pw=0;computePath(u);}else if((u.pw=(u.pw||0)+1)>18&&pathEmerg>0){pathEmerg--;u.pw=0;computePath(u);}return false;}
@@ -251,5 +261,29 @@ function moveAlong(u,dt){
  if(d>1e-4){u.hx=dx/d;u.hy=dy/d;}
  if(u.yieldT>time&&!(u.ghostT>time)){u.moving=true;return false;}   // giving way to a unit coming the other way (see separation)
  if(Math.abs(dx-dy)>0.01)u.dir=(dx-dy)>0?1:-1;
- if(d<=step){u.x=p[0];u.y=p[1];u.path.shift();return !u.path.length;}
- u.x+=dx/d*step;u.y+=dy/d*step;u.moving=true;return false;}
+ const arr=d<=step,nx=arr?p[0]:u.x+dx/d*step,ny=arr?p[1]:u.y+dy/d*step;
+ // v1.4.5: every step is checked against the live passability grid. A path planned before a wall, gate or building went up
+ // (or a smoothed line clipping a corner) used to be followed straight through it. Now the unit stops at the edge and re-plans;
+ // if it is blocked again soon after, it re-plans on the raw tile-by-tile A* path, which never cuts corners.
+ if(!stepOK(u.x,u.y,nx,ny,u.owner,u.trapT>time)){u.moving=true;
+  // brief corner clips (a smoothed line grazing a corner, a shove from a neighbour): slide along the free axis for up to 0.5 s
+  if(!(time-(u.blkLast||-9)<0.2))u.blk0=time;u.blkLast=time;
+  if(time-u.blk0<0.5){const sx=u.x+(nx-u.x),sy=u.y+(ny-u.y);
+   if(Math.abs(nx-u.x)>=Math.abs(ny-u.y)){if(stepOK(u.x,u.y,sx,u.y,u.owner)){u.x=sx;return false;}if(stepOK(u.x,u.y,u.x,sy,u.owner)){u.y=sy;return false;}}
+   else{if(stepOK(u.x,u.y,u.x,sy,u.owner)){u.y=sy;return false;}if(stepOK(u.x,u.y,sx,u.y,u.owner)){u.x=sx;return false;}}}
+  if(u.goal&&time-(u.blockT||-9)>0.4){if(time-(u.blockT||-9)<2.5)u.rawT=time+4;u.blockT=time;u.path=[];u.pend={x:u.goal.x,y:u.goal.y};return false;}
+  if(!u.goal){u.path=[];u.moving=false;return true;}
+  return false;}
+ u.x=nx;u.y=ny;if(arr){u.path.shift();return !u.path.length;}
+ u.moving=true;return false;}
+// can a unit move from (x0,y0) to (x1,y1) without entering a blocked tile or squeezing diagonally between two blocked tiles?
+// Sub-sampled every 0.4 tiles, so no speed can tunnel through a 1-tile wall. A unit already standing on a blocked tile may move off it.
+function stepOK(x0,y0,x1,y1,o,soft){const PG=passGrid(o);let cx=Math.floor(x0),cy=Math.floor(y0);
+ if(cx<0||cy<0||cx>=MAP||cy>=MAP||!PG[cy*MAP+cx])return true;
+ const n=Math.max(1,Math.ceil(Math.hypot(x1-x0,y1-y0)/0.4));
+ for(let k=1;k<=n;k++){const x=Math.floor(x0+(x1-x0)*k/n),y=Math.floor(y0+(y1-y0)*k/n);if(x===cx&&y===cy)continue;
+  if(x<0||y<0||x>=MAP||y>=MAP)return false;
+  if(!PG[y*MAP+x]&&!(soft&&softBlk(y*MAP+x,o)))return false;
+  if(x!==cx&&y!==cy&&!PG[cy*MAP+x]&&!PG[y*MAP+cx]&&!soft)return false;
+  cx=x;cy=y;}
+ return true;}

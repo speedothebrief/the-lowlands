@@ -1,6 +1,6 @@
 {
   "name": "the-lowlands",
-  "version": "1.4.4",
+  "version": "1.4.5",
   "description": "Real-time strategy browser game with a LAN multiplayer server",
   "main": "server.js",
   "scripts": {
